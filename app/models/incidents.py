@@ -22,4 +22,6 @@ from app.models import (  # noqa: F401
     SystemState,
     VerificationOutcome,
     VerificationResult,
+    RecoveryRequest,
+    RecoveryResponse,
 )

@@ -83,6 +83,7 @@ class AuditEventType(str, enum.Enum):
     INCIDENT_DETECTED = "incident_detected"
     STATE_LOADED = "state_loaded"
     ACTION_PROPOSED = "action_proposed"
+    ACTION_RECOMMENDED = "action_recommended"
     POLICY_EVALUATED = "policy_evaluated"
     RECOVERY_EXECUTED = "recovery_executed"
     RECOVERY_SKIPPED = "recovery_skipped"
@@ -400,3 +401,51 @@ ServiceInfo = SystemState
 class AuditRecord(IncidentResponse):
     """Backwards-compatible alias for earlier tests and routes expecting AuditRecord."""
     pass
+
+
+class RecoveryRequest(BaseModel):
+    """Request payload for POST /incidents/recover."""
+
+    incident_id: str = Field(..., min_length=1, max_length=64, description="Incident ID")
+    incident_type: str = Field(..., min_length=1, max_length=128, description="Incident type / classification")
+    affected_service: str = Field(..., min_length=1, max_length=128, description="Affected service name")
+    proposed_recovery_action: RecoveryAction = Field(..., description="Proposed recovery action")
+    current_system_state: SystemState = Field(..., description="Current simulated system state")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _support_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "service_name" in data and "affected_service" not in data:
+                data["affected_service"] = data["service_name"]
+            if "recovery_action" in data and "proposed_recovery_action" not in data:
+                data["proposed_recovery_action"] = data["recovery_action"]
+            if "system_state" in data and "current_system_state" not in data:
+                data["current_system_state"] = data["system_state"]
+        return data
+
+
+class RecoveryResponse(BaseModel):
+    """Response payload returned by POST /incidents/recover."""
+
+    incident_id: str = Field(..., description="Incident ID")
+    policy_decision: Optional[PolicyDecision] = Field(default=None, description="Policy decision")
+    recovery_result: Optional[RecoveryResult] = Field(default=None, description="Recovery result")
+    verification_result: Optional[VerificationResult] = Field(default=None, description="Verification result")
+    final_status: PipelineStatus = Field(..., description="Final pipeline status")
+    audit_events: List[AuditEvent] = Field(default_factory=list, description="Audit events for this recovery")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _support_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "pipeline_status" in data and "final_status" not in data:
+                data["final_status"] = data["pipeline_status"]
+            if "status" in data and "final_status" not in data:
+                data["final_status"] = data["status"]
+        return data
+
+    @property
+    def status(self) -> PipelineStatus:
+        return self.final_status
+
