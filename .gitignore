@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.egg-info/
+.pytest_cache/
 dist/
 build/
 *.egg
@@ -22,6 +23,11 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
 
 # Project artifacts
 *.jsonl
