@@ -1,204 +1,458 @@
 # Autonomous IT Reliability & Incident Recovery System
-## Member 2: Monitoring & Deterministic Incident Detection
 
-Autonomous infrastructure monitoring and deterministic incident detection engine for the **NVIDIA × Nebius Global AI Hackathon**.
+> **NVIDIA × Nebius Hackathon 2026**
 
----
-
-## 1. Project Overview & Workflow
-
-This project implements an autonomous closed-loop reliability and recovery framework structured around the following operational lifecycle:
-
-$$\text{Detect} \longrightarrow \text{Diagnose} \longrightarrow \text{Decide} \longrightarrow \text{Execute} \longrightarrow \text{Verify} \longrightarrow \text{Replan}$$
-
-1. **Detect (Member 2):** Ingests infrastructure telemetry windows, performs deterministic threshold checks against configured service limits, and emits structured `IncidentPayload` events.
-2. **Diagnose (Member 1):** Consumes `IncidentPayload` context (metrics, logs, deployment events) to infer the root cause via Nemotron AI Diagnosis.
-3. **Decide (Member 3):** Evaluates diagnosed root causes against deterministic safety policies and selects recovery runbooks.
-4. **Execute (Member 3):** Performs automated rollback, restart, or scaling recovery actions in isolated sandbox environments.
-5. **Verify (Member 3 & Member 2):** Samples post-recovery telemetry windows to confirm metric normalization and health restoration.
-6. **Replan (Member 3):** Automatically escalates or triggers alternative recovery strategies if post-recovery verification detects residual anomalies.
+An autonomous incident mitigation and recovery system that **detects** simulated IT incidents, **plans** remediation using an AI planner (or deterministic fallback), **decides** whether recovery is safe via an explainable deterministic policy gate, **executes** simulated recovery actions in-memory, **independently verifies** the resulting system state, and records an append-only chronological **audit trail**.
 
 ---
 
-## 2. Team Responsibility Boundaries
+## Architecture Diagram (Text)
 
-To maintain strict separation of concerns, the team operates across defined functional boundaries:
-
-- **Member 1 — AI Diagnosis:** Responsible for LLM-based root-cause diagnosis using NVIDIA Nemotron. Consumes `IncidentPayload`. Does not perform monitoring or execute recovery.
-- **Member 2 — Monitoring & Detection (This Module):** Responsible for infrastructure telemetry modeling, deterministic scenario generation, threshold-based incident detection, evidence collection, and severity classification.
-- **Member 3 — Orchestration, Policy Enforcement & Recovery:** Responsible for policy validation, executing recovery operations, post-recovery verification, and rollback execution. AI recommendations from Member 1 are treated as advisory proposals, **not authorization** to execute actions.
-
----
-
-## 3. Directory Structure
-
-This local workspace contains only verified Member 2 files and shared contract definitions:
-
-```text
-E:\Projects\NVIDIAxNebius\
-├── README.md                          # Project & module documentation
-├── src\
-│   ├── __init__.py                    # Source package marker
-│   ├── schemas.py                     # Shared cross-member Pydantic contracts
-│   └── monitoring\
-│       ├── __init__.py                # Monitoring module public API
-│       ├── config.py                  # MonitoringConfig threshold definitions
-│       ├── detector.py                # Deterministic threshold detection engine
-│       ├── scenarios.py               # Deterministic synthetic scenario generators
-│       └── telemetry.py               # TelemetryWindow & Telemetry containers
-└── tests\
-    ├── __init__.py                    # Test package marker
-    └── test_monitoring.py            # Complete unittest test suite (40 tests)
+```
+[ Incident Triggered / Detected ]
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 1. Receive Incident (Orchestrator)                                          │
+│    - Record INCIDENT_RECEIVED in Audit Log                                  │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 2. Load Current System State                                                │
+│    - Snapshot simulated metrics (CPU, Memory, Error Rate, Replicas)         │
+│    - Record STATE_LOADED in Audit Log                                       │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 3. Propose Recovery Action (RecoveryPlanner Interface)                      │
+│    ├── NebiusPlanner: NVIDIA Nemotron Model (Nebius Token Factory API)      │
+│    └── Fallback: DeterministicMockPlanner (Rule-Based Offline Planner)      │
+│    - Strict validation via Pydantic schema (AIPlanProposal)                 │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 4. Record Action Proposal in Audit Log (ACTION_PROPOSED)                    │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 5. Deterministic Policy Gate (DeterministicPolicyGate)                      │
+│    * THE FINAL AUTHORITY — Cannot be bypassed by AI proposals *             │
+│    Checks:                                                                  │
+│    [x] Action type explicitly allowed?                                      │
+│    [x] Target service exists in infrastructure catalog?                     │
+│    [x] Action marked safe for simulation (safe_for_simulation=True)?        │
+│    [x] Required parameters present (e.g. target_instances)?                 │
+│    [x] Risk level <= 5 and retry count < 3?                                 │
+│    [x] Protected service rules (e.g. database critical -> manual review)?   │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+                    ┌──────────────────┴──────────────────┐
+                    │                                     │
+           [ Verdict: APPROVE ]                  [ Verdict: DENY ]
+                    │                                     │
+                    ▼                                     ▼
+┌──────────────────────────────────────┐     ┌────────────────────────────────┐
+│ 6. Simulated Recovery Executor       │     │ Pipeline Terminated:           │
+│    (SimulatedRecoveryExecutor)       │     │ - Final status: recovery_denied│
+│    - Restarts failed services        │     │ - Executor/Verifier skipped    │
+│    - Clears queues                   │     │ - Record in Audit Log          │
+│    - Scales instances (<= max limit) │     └────────────────┬───────────────┘
+│    - Record RECOVERY_EXECUTED        │                      │
+└───────────────────┬──────────────────┘                      │
+                    │                                         │
+                    ▼                                         │
+┌──────────────────────────────────────┐                      │
+│ 7. Independent Verifier              │                      │
+│    (IndependentVerifier)             │                      │
+│    - Zero-trust independent probe    │                      │
+│    - Validates status == HEALTHY     │                      │
+│    - Verifies error_rate <= 0.10     │                      │
+│    - Verifies action-specific checks │                      │
+│    - Record VERIFICATION_COMPLETED   │                      │
+└───────────────────┬──────────────────┘                      │
+                    │                                         │
+                    └──────────────────┬──────────────────────┘
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 8. Record Final Pipeline Result in Audit Log (PIPELINE_COMPLETED)           │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 9. Return IncidentResponse / RecoveryResponse to API Client                 │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 4. Shared Schemas Overview (`src.schemas`)
+## Member 3 Responsibilities
 
-Defined in `src/schemas.py` and shared across all three members:
+Member 3 was responsible for designing, implementing, testing, and documenting the **Orchestration, Policy, Verification, AI Planning, Audit Logging, and API Layer**:
 
-- **`IncidentSeverity` (Enum):** Severity classification: `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`.
-- **`MetricSnapshot` (BaseModel, frozen):** Immutable snapshot of telemetry metrics at a point in time:
-  - `latency_p50_ms` ($\ge 0.0$)
-  - `latency_p99_ms` ($\ge 0.0$)
-  - `error_rate_pct` ($0.0 \le x \le 100.0$)
-  - `request_rate_rps` ($\ge 0.0$)
-  - `cpu_utilization_pct` ($0.0 \le x \le 100.0$)
-  - `memory_utilization_pct` ($0.0 \le x \le 100.0$)
-- **`LogEntry` (BaseModel, frozen):** Structured log line containing `timestamp`, `level` (`INFO`, `WARN`, `ERROR`, `FATAL`, `DEBUG`), `message`, optional `component`, and optional `trace_id`.
-- **`EvidenceItem` (BaseModel, frozen):** Specific rule breach details containing `rule_id`, `metric_name`, `threshold_value`, `observed_value`, and human-readable `explanation`.
-- **`DeploymentEvent` (BaseModel, frozen):** Details of a recent software rollout: `deployment_id`, `service`, `version`, `deployed_at`, and `status`.
-- **`IncidentPayload` (BaseModel, frozen, alias `Incident`):** Complete structured payload emitted upon breach:
-  - `incident_id`: Deterministic unique identifier (`INC-{service}-{YYYYMMDDHHMMSSffffff}`).
-  - `service`: Target service name.
-  - `timestamp`: Telemetry window timestamp.
-  - `severity`: Classified `IncidentSeverity`.
-  - `summary`: Concise incident summary with breach count.
-  - `metrics`: Observed `MetricSnapshot`.
-  - `logs`: Relevant contextual `List[LogEntry]`.
-  - `evidence`: `List[EvidenceItem]` detailing all violated rules.
-  - `recent_deployment`: Optional `DeploymentEvent` associated with the incident window.
+1. **Central Orchestrator (`app.orchestrator.Orchestrator`)**:
+   - Built the 9-step coordinated pipeline managing lifecycle transitions from incident ingestion through verified recovery.
+   - Guaranteed sequential error handling, fallback routing, and strict lifecycle status tracking (`detected`, `approved`, `rejected`, `executed`, `verified`, `failed`).
 
----
+2. **Deterministic Policy Gate (`app.policy.DeterministicPolicyGate`)**:
+   - Implemented the deterministic, explainable safety gate acting as the **final authority**.
+   - Validates action allowlists, service existence, simulation safety flags (`safe_for_simulation`), required parameter schemas, risk limits, and protected service guardrails.
 
-## 5. Monitoring Module Overview (`src.monitoring`)
+3. **Simulated Recovery Executor (`app.recovery.SimulatedRecoveryExecutor`)**:
+   - Engineered in-memory execution engine safely modifying infrastructure state: service restarts, queue flushing, and instance scaling bounded by safety limits.
 
-- **`MonitoringConfig` (`src/monitoring/config.py`):** Frozen dataclass storing detection thresholds and default service name.
-- **`TelemetryWindow` (`src/monitoring/telemetry.py`):** Container for windowed telemetry with `service`, `timestamp`, `metrics`, `logs`, optional `recent_deployment`, and `service_status`.
-- **`generate_healthy_scenario(service=None, seed=42, base_time=None)` (`src/monitoring/scenarios.py`):** Produces a fully deterministic baseline telemetry window with healthy metrics, clean INFO logs, and no anomalies.
-- **`generate_faulty_deployment_scenario(service=None, seed=42, base_time=None)` (`src/monitoring/scenarios.py`):** Produces a deterministic degraded scenario simulating a connection pool leak following deployment of `v2.4.1`, complete with elevated latency, critical error rate, exhausted pool error logs, and `recent_deployment` metadata.
-- **`detect_incident(telemetry, config=None)` (`src/monitoring/detector.py`):** Evaluates a `TelemetryWindow` against threshold rules. Returns an `IncidentPayload` if any rule is breached, or `None` if healthy.
+4. **Independent Verifier (`app.verification.IndependentVerifier`)**:
+   - Designed a zero-trust verification engine that directly queries the infrastructure state post-recovery without trusting the executor's return status.
+
+5. **Append-Only Audit Logging (`app.audit.AuditLogger`)**:
+   - Built the audit logging subsystem storing chronological, tamper-evident JSONL logs capturing every decision, proposal, execution, and verification result.
+
+6. **AI Recovery Planner & Nebius Integration (`app.recovery.RecoveryPlanner`)**:
+   - Defined the abstract `RecoveryPlanner` interface isolating AI models from execution authority.
+   - Built `NebiusPlanner` integrating the OpenAI-compatible Nebius Token Factory API with the NVIDIA Nemotron model (`nvidia/llama-3.1-nemotron-70b-instruct`) using strict Pydantic JSON validation (`AIPlanProposal`).
+   - Created `DeterministicMockPlanner` providing offline, rule-based planning and automatic fallback.
+
+7. **FastAPI Endpoints (`app.api.routes`)**:
+   - Implemented `POST /incidents/recover`, `GET /incidents/{incident_id}/audit`, and `GET /health` with complete request and response schema models.
+
+8. **End-to-End Demonstrations & Tests (`demo.py`, `tests/`)**:
+   - Authored the comprehensive demonstration suite (`demo.py`) and full automated test suite (82 passing tests covering all success and failure branches).
 
 ---
 
-## 6. Thresholds & Severity Precedence
+## Setup Instructions
 
-### Default Thresholds (`MonitoringConfig`)
+### Prerequisites
 
-| Metric | Warning Threshold (`warn`) | Critical Threshold (`crit`) |
+- Python 3.11+
+- pip
+
+### 1. Clone & Install
+
+```bash
+# Clone the repository
+git clone <repo-url> && cd NVIDIAxNebius
+
+# Create a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies in editable development mode
+pip install -e ".[dev]"
+```
+
+### 2. Run the Application Server
+
+```bash
+uvicorn app.main:app --reload
+```
+
+The FastAPI application will start at **http://127.0.0.1:8000**.
+- Interactive Swagger UI: **http://127.0.0.1:8000/docs**
+- ReDoc documentation: **http://127.0.0.1:8000/redoc**
+
+### 3. Run Automated Tests
+
+```bash
+pytest -v
+```
+
+All 82 unit and integration tests will run and pass in under 1 second.
+
+### 4. Run the End-to-End Demonstration
+
+```bash
+python3 demo.py
+```
+
+Runs all 5 scenarios with colored console output, request/response JSON previews, and audit trail inspection.
+
+---
+
+## Environment Variables
+
+| Variable | Default Value | Description |
 |---|---|---|
-| **p99 Latency** | `500.0 ms` | `1200.0 ms` |
-| **Error Rate** | `2.0 %` | `8.0 %` |
-| **CPU Utilization** | `80.0 %` | `90.0 %` |
-| **Memory Utilization** | `85.0 %` | `95.0 %` |
-
-*Threshold comparisons are inclusive ($\ge$). Service status is normalized with whitespace stripping and case-insensitivity before comparison.*
-
-### Severity Precedence Hierarchy
-
-The detection engine classifies incident severity deterministically using strict precedence rules:
-
-1. **Step 1: CRITICAL**
-   - Error rate critical breach ($\ge 8.0\%$), **OR**
-   - Dual warning breach: error rate warning ($\ge 2.0\%$) **AND** p99 latency warning ($\ge 500.0\text{ ms}$) simultaneously, **OR**
-   - Service status explicitly normalized to `"UNHEALTHY"`.
-2. **Step 2: HIGH**
-   - Critical p99 latency breach ($\ge 1200.0\text{ ms}$), **OR**
-   - Warning error rate breach ($\ge 2.0\%$), **OR**
-   - Critical CPU utilization breach ($\ge 90.0\%$), **OR**
-   - Critical memory utilization breach ($\ge 95.0\%$).
-3. **Step 3: MEDIUM**
-   - Any remaining single warning breach (p99 latency $\ge 500.0\text{ ms}$, CPU $\ge 80.0\%$, memory $\ge 85.0\%$, or service status normalized to `"DEGRADED"`).
-
-> [!NOTE]
-> - `IncidentSeverity.LOW` exists in `src/schemas.py` as a supported enum value.
-> - The current `detect_incident()` implementation does not emit `LOW`.
-> - Detected incidents are classified as `CRITICAL`, `HIGH`, or `MEDIUM`.
-> - If no threshold or status rule is breached, `detect_incident()` returns `None`.
+| `NEBIUS_TOKEN_FACTORY_API_KEY` | *(None / Empty)* | API Key for authenticating with the Nebius Token Factory / Nebius Studio API. |
+| `NEBIUS_TOKEN_FACTORY_BASE_URL` | `https://api.studio.nebius.ai/v1` | Base URL for OpenAI-compatible Nebius chat completions. |
+| `NEBIUS_MODEL` | `nvidia/llama-3.1-nemotron-70b-instruct` | NVIDIA Nemotron model hosted on Nebius Token Factory. |
 
 ---
 
-## 7. Python Usage Example
+## How to Run Without Nebius (Offline / Default)
 
-```python
-from datetime import datetime, timezone
-from src.monitoring import (
-    MonitoringConfig,
-    generate_faulty_deployment_scenario,
-    generate_healthy_scenario,
-    detect_incident,
-)
+The system is fully operational **without any external API keys or network connection**.
 
-# 1. Initialize configuration (or customize thresholds)
-config = MonitoringConfig()
+When `NEBIUS_TOKEN_FACTORY_API_KEY` is not set or empty:
+1. `NebiusPlanner` automatically falls back to `DeterministicMockPlanner`.
+2. `DeterministicMockPlanner` analyzes the incident severity, description, and system metrics locally:
+   - High CPU / load $\to$ recommends `scale_service`.
+   - Backlogged queue $\to$ recommends `clear_queue`.
+   - Critical incident $\to$ recommends `failover`.
+   - High error rate / degradation $\to$ recommends `restart_service`.
+3. All operations run deterministically in-memory in milliseconds.
 
-# 2. Generate simulated telemetry (100% deterministic with seed)
-telemetry = generate_faulty_deployment_scenario(seed=42)
+```bash
+# Ensure no external key is set
+unset NEBIUS_TOKEN_FACTORY_API_KEY
 
-# 3. Detect incidents deterministically (returns IncidentPayload or None)
-incident = detect_incident(telemetry, config=config)
-
-# 4. Safely handle the result
-if incident is not None:
-    print(f"Incident ID : {incident.incident_id}")
-    print(f"Service     : {incident.service}")
-    print(f"Severity    : {incident.severity.value}")
-    print(f"Summary     : {incident.summary}")
-    print(f"Breaches    : {len(incident.evidence)} rule(s) violated")
-    for ev in incident.evidence:
-        print(f"  - [{ev.rule_id}] {ev.metric_name}: observed {ev.observed_value} >= threshold {ev.threshold_value}")
-    if incident.recent_deployment:
-        print(f"Deployment  : {incident.recent_deployment.version} ({incident.recent_deployment.deployment_id})")
-else:
-    print("Telemetry is healthy. No incident detected.")
+# Run the complete demonstration offline
+python3 demo.py
 ```
 
 ---
 
-## 8. Deterministic Guarantees & Safety
+## How to Run With Nebius (NVIDIA Nemotron)
 
-- **Deterministic Logic:** The detection engine is pure code logic. Given identical inputs, it always produces identical incident IDs, evidence lists, and severity classifications.
-- **RNG Isolation:** Scenario generators instantiate a dedicated `random.Random(seed)` instance, preventing side-effects on global random state.
-- **No AI / LLM Calls:** Member 2 code does **not** call any LLM, AI model, or external service.
-- **No Side-Effects or Execution:** The detector does **not** invoke recovery actions, mutate system state, or execute shell commands. Recovery orchestration is the sole responsibility of Member 3.
+To enable live AI planning powered by the **NVIDIA Nemotron** model on Nebius Token Factory:
 
----
+```bash
+# 1. Set your Nebius API Key
+export NEBIUS_TOKEN_FACTORY_API_KEY="your-nebius-token-factory-key"
 
-## 9. Known Limitations
+# 2. (Optional) Customize the endpoint or model
+export NEBIUS_TOKEN_FACTORY_BASE_URL="https://api.studio.nebius.ai/v1"
+export NEBIUS_MODEL="nvidia/llama-3.1-nemotron-70b-instruct"
 
-- **Zero-Traffic Blackholes:** If a service has `request_rate_rps = 0.0` with `error_rate_pct = 0.0` and healthy status, the detector currently returns `None`. Because thresholds are upper bounds and baseline expected request volumes vary per service, an idle service cannot be differentiated from a complete ingress blackhole without an agreed baseline traffic model.
-
----
-
-## 10. Integration Notes for Member 1 & Member 3
-
-- **For Member 1 (Nemotron AI Diagnosis):**
-  - Ingest `IncidentPayload` directly from `detect_incident()`.
-  - Check `incident.recent_deployment` for structured deployment context (`version`, `deployment_id`) to diagnose faulty releases without scraping unstructured log strings.
-  - Access structured violations via `incident.evidence`.
-- **For Member 3 (Orchestration & Recovery):**
-  - AI diagnosis from Member 1 is advisory; validate proposed actions against policy checks before execution.
-  - Inspect `incident.recent_deployment.version` to determine rollback targets.
-  - Use `generate_healthy_scenario()` and `generate_faulty_deployment_scenario()` for integration testing and post-recovery verification loops.
-
----
-
-## 11. Running Tests
-
-Run the complete unit test suite using Python's built-in `unittest` runner (zero external dependencies required):
-
-```powershell
-python -m unittest discover -s tests -v
+# 3. Start the server or run the demo
+python3 demo.py
 ```
 
-All 40 unit tests cover baseline health, faulty rollouts, exact boundaries, below-threshold conditions, CPU/memory thresholds, service status normalization, custom configs, severity precedence, zero traffic, and microsecond ID collision resistance.
+### How Nebius Planning Works:
+1. The orchestrator calls `NebiusPlanner.plan(incident, system_state)`.
+2. A structured prompt is sent to `POST /chat/completions` on Nebius Token Factory with `response_format: {"type": "json_object"}`.
+3. The NVIDIA Nemotron model responds with strict structured JSON:
+   ```json
+   {
+     "action_type": "restart_service",
+     "target_service": "payment-service",
+     "parameters": {},
+     "reasoning": "Error rate exceeds 60% and latency is spiking. A restart clears hanging connection pools.",
+     "confidence": 0.95
+   }
+   ```
+4. The output is strictly validated against the Pydantic model `AIPlanProposal`.
+5. If the Nebius API call fails, times out, or returns invalid schema, `NebiusPlanner` **gracefully falls back** to `DeterministicMockPlanner` without interrupting the recovery lifecycle.
+
+---
+
+## Example API Request
+
+### Endpoint: `POST /incidents/recover`
+
+```bash
+curl -X POST http://127.0.0.1:8000/incidents/recover \
+  -H "Content-Type: application/json" \
+  -d '{
+    "incident_id": "inc-payment-001",
+    "incident_type": "service_degraded",
+    "affected_service": "payment-service",
+    "proposed_recovery_action": {
+      "incident_id": "inc-payment-001",
+      "action_type": "restart_service",
+      "target_service": "payment-service",
+      "parameters": {},
+      "safe_for_simulation": true,
+      "risk_level": 1,
+      "retry_count": 0
+    },
+    "current_system_state": {
+      "service_name": "payment-service",
+      "status": "degraded",
+      "cpu_percent": 45.0,
+      "memory_percent": 50.0,
+      "error_rate": 0.65,
+      "queue_size": 0,
+      "instances": 2
+    }
+  }'
+```
+
+---
+
+## Example API Response
+
+### Status: `200 OK`
+
+```json
+{
+  "incident_id": "inc-payment-001",
+  "policy_decision": {
+    "id": "30cc240781b1",
+    "incident_id": "inc-payment-001",
+    "verdict": "approve",
+    "reason": "Action 'restart_service' on 'payment-service' approved: action type allowed, service exists, safe for simulation, required parameters present, and risk/retry limits satisfied.",
+    "decided_by": "DeterministicPolicyGate",
+    "decided_at": "2026-10-27T15:12:06.944114Z"
+  },
+  "recovery_result": {
+    "id": "882430b33592",
+    "action_id": "78a0741b2325",
+    "incident_id": "inc-payment-001",
+    "action_type": "restart_service",
+    "target_service": "payment-service",
+    "success": true,
+    "message": "Service 'payment-service' successfully restarted.",
+    "started_at": "2026-10-27T15:12:06.944173Z",
+    "completed_at": "2026-10-27T15:12:06.944182Z"
+  },
+  "verification_result": {
+    "id": "a2e092d62c0c",
+    "incident_id": "inc-payment-001",
+    "service_name": "payment-service",
+    "outcome": "pass",
+    "details": "Independent verification passed: service is healthy, error_rate=0.01, cpu=20.0%, mem=30.0%, instances=2, queue_size=0.",
+    "checks_performed": [
+      "service_exists:PASS",
+      "status_healthy:PASS",
+      "error_rate_acceptable:PASS(0.01)"
+    ],
+    "checked_at": "2026-10-27T15:12:06.944245Z"
+  },
+  "final_status": "success",
+  "audit_events": [
+    {
+      "id": "90d1bf37e891",
+      "incident_id": "inc-payment-001",
+      "timestamp": "2026-10-27T15:12:06.943801Z",
+      "component_name": "Orchestrator",
+      "event_type": "incident_received",
+      "details": {
+        "incident": {
+          "id": "inc-payment-001",
+          "service_name": "payment-service",
+          "severity": "high",
+          "title": "service_degraded on payment-service",
+          "status": "detected"
+        }
+      },
+      "success": true,
+      "explanation": "Incident received: 'service_degraded on payment-service' on service 'payment-service' with severity 'high'."
+    },
+    {
+      "id": "4220b3cd6749",
+      "incident_id": "inc-payment-001",
+      "timestamp": "2026-10-27T15:12:06.943836Z",
+      "component_name": "Orchestrator",
+      "event_type": "state_loaded",
+      "details": {
+        "system_state_before": {
+          "service_name": "payment-service",
+          "status": "degraded",
+          "cpu_percent": 45.0,
+          "error_rate": 0.65
+        }
+      },
+      "success": true,
+      "explanation": "Loaded system state snapshot for 'payment-service'."
+    },
+    {
+      "id": "dbfa6712e19a",
+      "incident_id": "inc-payment-001",
+      "timestamp": "2026-10-27T15:12:06.944055Z",
+      "component_name": "RecoveryPlanner",
+      "event_type": "action_proposed",
+      "details": {
+        "recovery_action": {
+          "action_type": "restart_service",
+          "target_service": "payment-service"
+        },
+        "planner": "DeterministicMockPlanner"
+      },
+      "success": true,
+      "explanation": "RecoveryPlanner (DeterministicMockPlanner) recommended action 'restart_service' targeting service 'payment-service' with parameters {'severity': 'medium'}."
+    },
+    {
+      "id": "edd869fe22e4",
+      "incident_id": "inc-payment-001",
+      "timestamp": "2026-10-27T15:12:06.944125Z",
+      "component_name": "DeterministicPolicyGate",
+      "event_type": "policy_evaluated",
+      "details": {
+        "policy_decision": {
+          "verdict": "approve",
+          "reason": "Action 'restart_service' on 'payment-service' approved..."
+        }
+      },
+      "success": true,
+      "explanation": "Policy decision: approve. Rationale: Action 'restart_service' on 'payment-service' approved..."
+    },
+    {
+      "id": "0d4c701ba507",
+      "incident_id": "inc-payment-001",
+      "timestamp": "2026-10-27T15:12:06.944198Z",
+      "component_name": "SimulatedRecoveryExecutor",
+      "event_type": "recovery_executed",
+      "details": {
+        "recovery_result": {
+          "success": true,
+          "message": "Service 'payment-service' successfully restarted."
+        }
+      },
+      "success": true,
+      "explanation": "Service 'payment-service' successfully restarted."
+    },
+    {
+      "id": "ab5543dbd489",
+      "incident_id": "inc-payment-001",
+      "timestamp": "2026-10-27T15:12:06.944253Z",
+      "component_name": "IndependentVerifier",
+      "event_type": "verification_completed",
+      "details": {
+        "verification_result": {
+          "outcome": "pass",
+          "details": "Independent verification passed: service is healthy..."
+        }
+      },
+      "success": true,
+      "explanation": "Independent verification passed: service is healthy, error_rate=0.01..."
+    },
+    {
+      "id": "b6e6f3ee3a2a",
+      "incident_id": "inc-payment-001",
+      "timestamp": "2026-10-27T15:12:06.944297Z",
+      "component_name": "Orchestrator",
+      "event_type": "pipeline_completed",
+      "details": {
+        "pipeline_status": "success",
+        "incident_status": "verified"
+      },
+      "success": true,
+      "explanation": "Incident recovery pipeline completed with status 'success'."
+    }
+  ]
+}
+```
+
+---
+
+## Security Limitations & Guardrails
+
+1. **In-Memory Simulation Boundary**:
+   - The entire infrastructure catalog and recovery executor operate strictly on in-memory simulated objects (`InfrastructureSimulator`).
+   - No operating system subprocesses, live cloud APIs (AWS/GCP/Azure), Kubernetes clusters, or production networks can be modified or accessed by this system.
+
+2. **Policy Gate as Absolute Authority**:
+   - The AI planner (`NebiusPlanner`) has **zero execution authority**.
+   - A model recommendation cannot execute actions directly, cannot approve itself, and cannot bypass the deterministic policy gate.
+   - Even high-confidence AI proposals are blocked if they violate allowlists, simulation safety flags, or risk limits.
+
+3. **Protection Against Prompt Injection & Hallucinations**:
+   - All AI output is parsed into strict Pydantic schemas (`AIPlanProposal`). Extraneous commands, markdown artifacts, or unexpected keys cause immediate validation failure, which safely triggers fallback to rule-based planning.
+
+4. **Protected Services Quarantine**:
+   - Critical services (e.g. `database`) are tagged in `DEFAULT_PROTECTED_SERVICES`. Any automated recovery attempt during critical incidents is intercepted by the policy gate and routed to `MANUAL_REVIEW`, preventing unintended database restarts or failovers.
+
+5. **Operational Risk & Retry Throttling**:
+   - Actions with a risk score greater than `max_risk_limit` (default: 5) or actions that have reached `max_retry_limit` (default: 3 retries) are rejected by the policy gate, preventing flapping recovery cycles.
+   - Instance scaling has a hard executor upper boundary (`max_scale_limit = 10`) to eliminate simulated resource starvation.
+
+---
+
+## License
+
+Hackathon project — NVIDIA × Nebius 2026.

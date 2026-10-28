@@ -1,0 +1,21 @@
+[project]
+name = "incident-recovery-system"
+version = "0.1.0"
+description = "Autonomous IT Reliability & Incident Recovery System – NVIDIA × Nebius Hackathon"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110,<1",
+    "uvicorn[standard]>=0.29,<1",
+    "pydantic>=2.0,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+    "httpx>=0.27,<1",       # for FastAPI TestClient
+    "pytest-asyncio>=0.23,<1",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
