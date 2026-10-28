@@ -214,13 +214,15 @@ To enable live AI planning powered by the **NVIDIA Nemotron** model on Nebius To
 # 1. Set your Nebius API Key
 export NEBIUS_TOKEN_FACTORY_API_KEY="your-nebius-token-factory-key"
 
-# 2. (Optional) Customize the endpoint or model
+# 2. (Optional) Customize the endpoint or model. If unset, the system uses the Nebius Token Factory default.
 export NEBIUS_TOKEN_FACTORY_BASE_URL="https://api.studio.nebius.ai/v1"
 export NEBIUS_MODEL="nvidia/llama-3.1-nemotron-70b-instruct"
 
 # 3. Start the server or run the demo
 python3 demo.py
 ```
+
+When the environment variable is set, the orchestrator uses `NebiusPlanner`. When it is absent or the Nebius API call fails, the system automatically falls back to `DeterministicMockPlanner` while the policy gate remains the final authority.
 
 ### How Nebius Planning Works:
 1. The orchestrator calls `NebiusPlanner.plan(incident, system_state)`.

@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 # Default NVIDIA Nemotron model on Nebius Token Factory / Studio
 DEFAULT_NEBIUS_MODEL = "nvidia/llama-3.1-nemotron-70b-instruct"
 DEFAULT_NEBIUS_BASE_URL = "https://api.studio.nebius.ai/v1"
+DEFAULT_NEBIUS_BASE_URL_ENV = "https://api.studio.nebius.ai/v1"
 
 
 class AIPlanProposal(BaseModel):
@@ -129,10 +130,11 @@ class NebiusPlanner(RecoveryPlanner):
         fallback_planner: Optional[RecoveryPlanner] = None,
     ) -> None:
         self.api_key = api_key if api_key is not None else os.getenv("NEBIUS_TOKEN_FACTORY_API_KEY", "")
+        env_base_url = os.getenv("NEBIUS_TOKEN_FACTORY_BASE_URL")
         self.base_url = (
             base_url
             if base_url is not None
-            else os.getenv("NEBIUS_TOKEN_FACTORY_BASE_URL", DEFAULT_NEBIUS_BASE_URL)
+            else (env_base_url or DEFAULT_NEBIUS_BASE_URL_ENV)
         ).rstrip("/")
         self.model = (
             model
@@ -160,16 +162,18 @@ class NebiusPlanner(RecoveryPlanner):
 
         try:
             proposal = self._call_nebius_api(incident, state)
+            parameters = {
+                **proposal.parameters,
+                "severity": incident.severity.value,
+                "ai_reasoning": proposal.reasoning,
+                "ai_confidence": proposal.confidence,
+                "ai_model": self.model,
+            }
             return RecoveryAction(
                 incident_id=incident.id,
                 action_type=proposal.action_type,
                 target_service=proposal.target_service,
-                parameters={
-                    **proposal.parameters,
-                    "ai_reasoning": proposal.reasoning,
-                    "ai_confidence": proposal.confidence,
-                    "ai_model": self.model,
-                },
+                parameters=parameters,
                 safe_for_simulation=True,
                 risk_level=1,
                 retry_count=0,

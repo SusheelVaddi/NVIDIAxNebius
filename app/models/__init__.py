@@ -25,6 +25,17 @@ from typing import Any, ClassVar, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from src.schemas import IncidentPayload as MonitoringIncidentPayload
+
+
+def incident_from_monitoring_payload(payload: MonitoringIncidentPayload) -> "Incident":
+    """Convert src.schemas.IncidentPayload into app.models.Incident.
+
+    This is the explicit adapter used when a monitoring detector emits a structured incident
+    that must enter the application recovery pipeline.
+    """
+    return Incident.from_monitoring_payload(payload)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Enumerations
@@ -135,6 +146,9 @@ class Incident(BaseModel):
                                   description="UTC timestamp of detection")
     resolved_at: Optional[datetime] = Field(default=None,
                                             description="UTC timestamp when resolved (if applicable)")
+    metrics: Optional[Dict[str, Any]] = Field(default=None, description="Optional detached metrics snapshot")
+    logs: List[str] = Field(default_factory=list, description="Optional log lines associated with the incident")
+    evidence: List[Dict[str, Any]] = Field(default_factory=list, description="Optional evidence items")
 
     @model_validator(mode="before")
     @classmethod
@@ -154,6 +168,28 @@ class Incident(BaseModel):
         if " " in v:
             raise ValueError("service_name must not contain spaces")
         return v
+
+    @classmethod
+    def from_monitoring_payload(cls, payload: MonitoringIncidentPayload) -> "Incident":
+        """Create app.models.Incident from src.schemas.IncidentPayload."""
+        return cls(
+            id=payload.incident_id,
+            service_name=payload.service,
+            severity=IncidentSeverity(payload.severity.value.lower()),
+            title=payload.summary,
+            description=payload.summary,
+            status=IncidentStatus.DETECTED,
+            metrics={
+                "latency_p50_ms": payload.metrics.latency_p50_ms,
+                "latency_p99_ms": payload.metrics.latency_p99_ms,
+                "error_rate_pct": payload.metrics.error_rate_pct,
+                "request_rate_rps": payload.metrics.request_rate_rps,
+                "cpu_utilization_pct": payload.metrics.cpu_utilization_pct,
+                "memory_utilization_pct": payload.metrics.memory_utilization_pct,
+            },
+            logs=[log.model_dump(mode="json") for log in payload.logs],
+            evidence=[item.model_dump(mode="json") for item in payload.evidence],
+        )
 
 
 class SystemState(BaseModel):

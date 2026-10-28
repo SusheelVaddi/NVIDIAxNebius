@@ -14,6 +14,7 @@ Coordinates the end-to-end recovery lifecycle:
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -37,10 +38,12 @@ from app.models import (
 from app.policy import DeterministicPolicyGate
 from app.recovery import (
     DeterministicMockPlanner,
+    NebiusPlanner,
     RecoveryPlanner,
     SimulatedRecoveryExecutor,
 )
 from app.verification import IndependentVerifier
+from src.schemas import IncidentPayload as MonitoringIncidentPayload
 
 
 class Orchestrator:
@@ -60,7 +63,19 @@ class Orchestrator:
         self.executor = executor if executor is not None else SimulatedRecoveryExecutor()
         self.verifier = verifier if verifier is not None else IndependentVerifier()
         self.audit_logger = audit_logger if audit_logger is not None else default_audit_logger
-        self.planner = planner if planner is not None else DeterministicMockPlanner()
+        api_key = os.getenv("NEBIUS_TOKEN_FACTORY_API_KEY", "").strip()
+        if planner is not None:
+            self.planner = planner
+        elif api_key:
+            self.planner = NebiusPlanner(api_key=api_key)
+        else:
+            self.planner = DeterministicMockPlanner()
+
+    @staticmethod
+    def from_monitoring_payload(payload: MonitoringIncidentPayload, *, infra=None, audit_logger=None, **kwargs) -> "Orchestrator":
+        """Create an orchestrator configured to consume a monitoring IncidentPayload."""
+        incident = Incident.from_monitoring_payload(payload)
+        return Orchestrator(infra=infra, audit_logger=audit_logger, **kwargs).with_incident(incident)
 
     def propose_action(
         self,
@@ -73,6 +88,11 @@ class Orchestrator:
         if target_instances is not None:
             action.parameters["target_instances"] = target_instances
         return action
+
+    def with_incident(self, incident: Incident) -> "Orchestrator":
+        """Attach an incident to the orchestrator for a single pipeline run."""
+        self._pending_incident = incident
+        return self
 
     def handle_incident(
         self,

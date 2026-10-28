@@ -248,11 +248,30 @@ def test_ai_recommendation_rejected_unsafe_flag(tmp_path):
 # 4. Malformed AI Output
 # ---------------------------------------------------------------------------
 
+def test_nebius_path_uses_env_base_url_and_fallback_on_api_error(sample_incident, sample_state):
+    """The Nebius planner honors env config and falls back when the API fails."""
+    env = {
+        "NEBIUS_TOKEN_FACTORY_API_KEY": "env-token",
+        "NEBIUS_TOKEN_FACTORY_BASE_URL": "https://custom.nebius.example/v1",
+    }
+    with patch.dict("os.environ", env, clear=False):
+        planner = NebiusPlanner()
+        assert planner.base_url == "https://custom.nebius.example/v1"
+        assert planner.api_key == "env-token"
+
+        mock_res = MagicMock()
+        mock_res.status_code = 503
+        mock_res.raise_for_status.side_effect = httpx.HTTPStatusError("Service Unavailable", request=None, response=mock_res)
+        with patch("httpx.Client.post", return_value=mock_res):
+            action = planner.plan(sample_incident, sample_state)
+            assert action.target_service == sample_incident.service_name
+            assert action.safe_for_simulation is True
+
+
 def test_malformed_ai_output(sample_incident, sample_state):
     """When the model returns malformed JSON or missing fields, planner validates and falls back safely."""
     mock_res = MagicMock()
     mock_res.status_code = 200
-    # Malformed JSON (unclosed braces)
     mock_res.json.return_value = {
         "choices": [{"message": {"content": '{"action_type": "restart_service", "target_service": "web-frontend"'}}]
     }
@@ -262,7 +281,6 @@ def test_malformed_ai_output(sample_incident, sample_state):
     with patch("httpx.Client.post", return_value=mock_res):
         action = planner.plan(sample_incident, sample_state)
 
-        # Safely fell back to deterministic mock planner
         assert action is not None
         assert action.target_service == sample_incident.service_name
         assert action.action_type in list(RecoveryActionType)
@@ -282,7 +300,7 @@ def test_malformed_ai_schema_validation_failure(sample_incident, sample_state):
                         "target_service": "web-frontend",
                         "parameters": {},
                         "reasoning": "Test",
-                        "confidence": 1.5,  # Invalid: must be <= 1.0
+                        "confidence": 1.5,
                     })
                 }
             }
@@ -294,7 +312,6 @@ def test_malformed_ai_schema_validation_failure(sample_incident, sample_state):
     with patch("httpx.Client.post", return_value=mock_res):
         action = planner.plan(sample_incident, sample_state)
 
-        # Validation failed and fell back
         assert action is not None
         assert action.target_service == sample_incident.service_name
 
