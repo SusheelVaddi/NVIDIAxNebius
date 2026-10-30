@@ -31,6 +31,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 import argparse
 import json
+import os
 import sys
 from typing import Any, Dict, Optional
 
@@ -69,6 +70,14 @@ DIM = "\033[2m"
 RESET = "\033[0m"
 
 
+def reset_simulator(client: TestClient) -> None:
+    """Reset demo state using the configured admin token, when required."""
+    token = os.getenv("ADMIN_RESET_TOKEN", "")
+    headers = {"X-Admin-Reset-Token": token} if token else {}
+    response = client.post("/reset", headers=headers)
+    response.raise_for_status()
+
+
 def header(title: str) -> None:
     line = "=" * 80
     print(f"\n{BOLD}{CYAN}{line}{RESET}")
@@ -96,6 +105,7 @@ def run_scenario_1_primary_recovery(client: TestClient) -> Dict[str, Any]:
 
     # 1. Reset state & register payment service in an unhealthy state
     subheader("Step 1", "Inject Incident: Payment Service is Unhealthy")
+    reset_simulator(client)
     _reset_state(client)
     payment_initial_state = SystemState(
         service_name="payment-service",

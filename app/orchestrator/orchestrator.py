@@ -14,11 +14,11 @@ Coordinates the end-to-end recovery lifecycle:
 
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 from typing import Optional
 
 from app.audit import AuditLogger, audit_logger as default_audit_logger
+from app.config import get_nebius_api_key, is_ai_diagnosis_enabled
 from app.diagnosis import (
     DiagnosisError,
     DiagnosisResult,
@@ -90,7 +90,7 @@ class Orchestrator:
         self.executor = executor if executor is not None else SimulatedRecoveryExecutor()
         self.verifier = verifier if verifier is not None else IndependentVerifier()
         self.audit_logger = audit_logger if audit_logger is not None else default_audit_logger
-        api_key = os.getenv("NEBIUS_TOKEN_FACTORY_API_KEY", "").strip()
+        api_key = get_nebius_api_key()
         if planner is not None:
             self.planner = planner
         elif api_key:
@@ -99,9 +99,7 @@ class Orchestrator:
             self.planner = DeterministicMockPlanner()
         if diagnoser is not None:
             self.diagnoser = diagnoser
-        elif os.getenv("ENABLE_AI_DIAGNOSIS", "").strip().lower() in {
-            "1", "true", "yes", "t", "on"
-        }:
+        elif is_ai_diagnosis_enabled():
             self.diagnoser = IncidentDiagnoser(client=NemotronClient())
         else:
             self.diagnoser = None

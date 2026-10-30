@@ -6,6 +6,7 @@ Delegates all business logic to the orchestrator layer.
 
 from __future__ import annotations
 
+import hmac
 import os
 import secrets
 from typing import List, Optional
@@ -14,6 +15,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from app.audit import audit_logger
+from app.config import get_nebius_api_key
 from app.infrastructure import infra
 from app.models import (
     AuditEvent,
@@ -41,7 +43,7 @@ router = APIRouter()
 
 def get_orchestrator() -> Orchestrator:
     """Provide an Orchestrator instance configured with system singletons."""
-    api_key = os.getenv("NEBIUS_TOKEN_FACTORY_API_KEY", "").strip()
+    api_key = get_nebius_api_key()
     planner = NebiusPlanner(api_key=api_key) if api_key else DeterministicMockPlanner()
     return Orchestrator(infra=infra, audit_logger=audit_logger, planner=planner)
 

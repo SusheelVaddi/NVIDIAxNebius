@@ -2,9 +2,9 @@
 Shared data contracts for Autonomous IT Reliability & Incident Recovery System.
 
 This module is the shared contract across:
-- Member 1: Nemotron AI Diagnosis
-- Member 2: Monitoring & Deterministic Incident Detection
-- Member 3: Orchestration, Policy Enforcement, Recovery & Verification
+- Nemotron AI diagnosis
+- Monitoring and deterministic incident detection
+- Recovery orchestration, policy enforcement, and verification
 """
 
 from datetime import datetime

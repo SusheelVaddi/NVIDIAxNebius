@@ -9,19 +9,21 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import socket
 import urllib.error
 import urllib.request
 from typing import Any, Callable, Dict, List, Optional, Union
 
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except ImportError:
-    pass
-
+from app.config import (
+    DEFAULT_NEBIUS_API_BASE,
+    DEFAULT_NEBIUS_MODEL_ID,
+    DEFAULT_NEBIUS_TIMEOUT_SECONDS,
+    get_nebius_api_base,
+    get_nebius_api_key,
+    get_nebius_model_id,
+    get_nebius_timeout_seconds,
+    is_nebius_mock_mode,
+)
 from app.diagnosis.exceptions import (
     NemotronAPIError,
     NemotronAuthError,
@@ -33,18 +35,9 @@ from app.diagnosis.exceptions import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BASE_URL: str = "https://api.tokenfactory.nebius.com/v1"
-DEFAULT_MODEL_ID: str = "nvidia/nemotron-3-super-120b-a12b"
-DEFAULT_TIMEOUT_SECONDS: float = 30.0
-
-TRUTHY_VALUES = {"1", "true", "yes", "t", "on"}
-
-
-def _is_truthy(val: Optional[str]) -> bool:
-    """Check if an environment variable string represents boolean True."""
-    if not val:
-        return False
-    return val.strip().lower() in TRUTHY_VALUES
+DEFAULT_BASE_URL = DEFAULT_NEBIUS_API_BASE
+DEFAULT_MODEL_ID = DEFAULT_NEBIUS_MODEL_ID
+DEFAULT_TIMEOUT_SECONDS = DEFAULT_NEBIUS_TIMEOUT_SECONDS
 
 
 def _mask_secret(secret: Optional[str]) -> str:
@@ -78,11 +71,11 @@ class NemotronClient:
         """Initialize the NemotronClient.
 
         Configuration is read from arguments, falling back to environment variables:
-        - API Key: NEBIUS_API_KEY or NEMOTRON_API_KEY
-        - Base URL: NEBIUS_API_BASE or NEBIUS_BASE_URL (default: https://api.tokenfactory.nebius.com/v1)
-        - Model ID: NEBIUS_MODEL_ID or NEMOTRON_MODEL (default: nvidia/nemotron-3-super-120b-a12b)
-        - Timeout: NEBIUS_TIMEOUT_SECONDS or NEMOTRON_TIMEOUT_SECONDS (default: 30.0)
-        - Mock Mode: NEBIUS_MOCK_MODE or NEMOTRON_MOCK_MODE (default: False)
+        - API Key: NEBIUS_API_KEY (aliases: NEMOTRON_API_KEY, NEBIUS_TOKEN_FACTORY_API_KEY)
+        - Base URL: NEBIUS_API_BASE (aliases: NEBIUS_BASE_URL, NEBIUS_TOKEN_FACTORY_BASE_URL)
+        - Model ID: NEBIUS_MODEL_ID (aliases: NEBIUS_MODEL, NEMOTRON_MODEL)
+        - Timeout: NEBIUS_TIMEOUT_SECONDS (alias: NEMOTRON_TIMEOUT_SECONDS)
+        - Mock Mode: NEBIUS_MOCK_MODE (alias: NEMOTRON_MOCK_MODE)
 
         Args:
             api_key: Nebius Token Factory API key.
@@ -95,50 +88,31 @@ class NemotronClient:
         # Resolve API Key (never hardcoded)
         resolved_key = api_key
         if resolved_key is None:
-            resolved_key = os.getenv("NEBIUS_API_KEY") or os.getenv("NEMOTRON_API_KEY")
+            resolved_key = get_nebius_api_key()
         self._api_key: Optional[str] = resolved_key.strip() if resolved_key else None
 
         # Resolve Base URL
         resolved_base_url = base_url
         if resolved_base_url is None:
-            resolved_base_url = (
-                os.getenv("NEBIUS_API_BASE")
-                or os.getenv("NEBIUS_BASE_URL")
-                or DEFAULT_BASE_URL
-            )
+            resolved_base_url = get_nebius_api_base()
         self.base_url: str = resolved_base_url.rstrip("/")
 
         # Resolve Model ID
         resolved_model_id = model_id
         if resolved_model_id is None:
-            resolved_model_id = (
-                os.getenv("NEBIUS_MODEL_ID")
-                or os.getenv("NEMOTRON_MODEL")
-                or DEFAULT_MODEL_ID
-            )
+            resolved_model_id = get_nebius_model_id()
         self.model_id: str = resolved_model_id
 
         # Resolve Timeout
         resolved_timeout = timeout
         if resolved_timeout is None:
-            raw_timeout = os.getenv("NEBIUS_TIMEOUT_SECONDS") or os.getenv(
-                "NEMOTRON_TIMEOUT_SECONDS"
-            )
-            if raw_timeout is not None:
-                try:
-                    resolved_timeout = float(raw_timeout)
-                except ValueError:
-                    resolved_timeout = DEFAULT_TIMEOUT_SECONDS
-            else:
-                resolved_timeout = DEFAULT_TIMEOUT_SECONDS
+            resolved_timeout = get_nebius_timeout_seconds()
         self.timeout: float = max(0.1, float(resolved_timeout))
 
         # Resolve Mock Mode
         resolved_mock_mode = mock_mode
         if resolved_mock_mode is None:
-            resolved_mock_mode = _is_truthy(os.getenv("NEBIUS_MOCK_MODE")) or _is_truthy(
-                os.getenv("NEMOTRON_MOCK_MODE")
-            )
+            resolved_mock_mode = is_nebius_mock_mode()
         self.mock_mode: bool = bool(resolved_mock_mode)
 
         self._mock_response: Optional[Union[Dict[str, Any], str, Callable[..., Any]]] = (

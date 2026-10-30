@@ -1,4 +1,4 @@
-"""Unit tests for the Member 3 Orchestration Layer.
+"""Unit tests for the incident recovery orchestration layer.
 
 Tests cover:
 - approved action

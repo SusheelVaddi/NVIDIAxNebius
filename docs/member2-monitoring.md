@@ -11,22 +11,17 @@ This project implements an autonomous closed-loop reliability and recovery frame
 
 $$\text{Detect} \longrightarrow \text{Diagnose} \longrightarrow \text{Decide} \longrightarrow \text{Execute} \longrightarrow \text{Verify} \longrightarrow \text{Replan}$$
 
-1. **Detect (Member 2):** Ingests infrastructure telemetry windows, performs deterministic threshold checks against configured service limits, and emits structured `IncidentPayload` events.
-2. **Diagnose (Member 1):** Consumes `IncidentPayload` context (metrics, logs, deployment events) to infer the root cause via Nemotron AI Diagnosis.
-3. **Decide (Member 3):** Evaluates diagnosed root causes against deterministic safety policies and selects recovery runbooks.
-4. **Execute (Member 3):** Performs automated rollback, restart, or scaling recovery actions in isolated sandbox environments.
-5. **Verify (Member 3 & Member 2):** Samples post-recovery telemetry windows to confirm metric normalization and health restoration.
-6. **Replan (Member 3):** Automatically escalates or triggers alternative recovery strategies if post-recovery verification detects residual anomalies.
+1. **Detect:** Ingests infrastructure telemetry windows, performs deterministic threshold checks against configured service limits, and emits structured `IncidentPayload` events.
+2. **Diagnose:** Consumes `IncidentPayload` context (metrics, logs, deployment events) to infer the root cause via Nemotron AI Diagnosis.
+3. **Decide:** Evaluates proposed actions against deterministic safety policies; AI recommendations are advisory only.
+4. **Execute:** Runs approved recovery actions against the in-memory infrastructure simulator.
+5. **Verify:** Independently checks the simulated post-recovery state.
 
 ---
 
-## 2. Team Responsibility Boundaries
+## 2. Component Boundaries
 
-To maintain strict separation of concerns, the team operates across defined functional boundaries:
-
-- **Member 1 — AI Diagnosis:** Responsible for LLM-based root-cause diagnosis using NVIDIA Nemotron. Consumes `IncidentPayload`. Does not perform monitoring or execute recovery.
-- **Member 2 — Monitoring & Detection (This Module):** Responsible for infrastructure telemetry modeling, deterministic scenario generation, threshold-based incident detection, evidence collection, and severity classification.
-- **Member 3 — Orchestration, Policy Enforcement & Recovery:** Responsible for policy validation, executing recovery operations, post-recovery verification, and rollback execution. AI recommendations from Member 1 are treated as advisory proposals, **not authorization** to execute actions.
+`src/monitoring` provides telemetry modeling, deterministic scenarios, threshold-based detection, evidence collection, and severity classification. The recovery API and orchestration are implemented under `app/`. The detector does not invoke recovery actions or mutate simulated infrastructure.
 
 ---
 
@@ -169,8 +164,8 @@ else:
 
 - **Deterministic Logic:** The detection engine is pure code logic. Given identical inputs, it always produces identical incident IDs, evidence lists, and severity classifications.
 - **RNG Isolation:** Scenario generators instantiate a dedicated `random.Random(seed)` instance, preventing side-effects on global random state.
-- **No AI / LLM Calls:** Member 2 code does **not** call any LLM, AI model, or external service.
-- **No Side-Effects or Execution:** The detector does **not** invoke recovery actions, mutate system state, or execute shell commands. Recovery orchestration is the sole responsibility of Member 3.
+- **No AI / LLM Calls:** Monitoring code does **not** call any LLM, AI model, or external service.
+- **No Side-Effects or Execution:** The detector does **not** invoke recovery actions, mutate system state, or execute shell commands. Recovery orchestration belongs to `app/`.
 
 ---
 
@@ -180,14 +175,14 @@ else:
 
 ---
 
-## 10. Integration Notes for Member 1 & Member 3
+## 10. Integration Notes
 
-- **For Member 1 (Nemotron AI Diagnosis):**
+- **For Nemotron AI diagnosis:**
   - Ingest `IncidentPayload` directly from `detect_incident()`.
   - Check `incident.recent_deployment` for structured deployment context (`version`, `deployment_id`) to diagnose faulty releases without scraping unstructured log strings.
   - Access structured violations via `incident.evidence`.
-- **For Member 3 (Orchestration & Recovery):**
-  - AI diagnosis from Member 1 is advisory; validate proposed actions against policy checks before execution.
+- **For recovery orchestration:**
+  - AI diagnosis is advisory; validate proposed actions against policy checks before execution.
   - Inspect `incident.recent_deployment.version` to determine rollback targets.
   - Use `generate_healthy_scenario()` and `generate_faulty_deployment_scenario()` for integration testing and post-recovery verification loops.
 

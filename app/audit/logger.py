@@ -28,6 +28,22 @@ from app.models import AuditEvent, AuditEventType, AuditIntegrityReport, AuditRe
 
 _DEFAULT_LOG_DIR = Path(__file__).resolve().parents[2] / "audit_logs"
 _DEFAULT_LOG_FILE = _DEFAULT_LOG_DIR / "audit.jsonl"
+_ZERO_HASH = "0" * 64
+_INTEGRITY_FIELD = "_audit_integrity"
+
+
+def _canonical_json(data: Dict[str, Any]) -> str:
+    return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _record_hash(payload: Dict[str, Any], sequence: int, previous_hash: str) -> str:
+    body = _canonical_json(payload)
+    material = f"{sequence}:{previous_hash}:{body}".encode("utf-8")
+    return hashlib.sha256(material).hexdigest()
+
+
+class AuditLogger:
+    """Thread-safe append-only audit logger with a verifiable JSONL hash chain."""
 GENESIS_HASH = "0" * 64
 
 _SENSITIVE_KEY_SUBSTRINGS = (
@@ -111,6 +127,67 @@ class AuditLogger:
         self._last_event_hash: Optional[str] = None
         if self._path.parent:
             self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._sequence, self._last_hash = self._load_integrity_state()
+
+    def _load_integrity_state(self) -> tuple[int, str]:
+        if not self._path.exists():
+            return 0, _ZERO_HASH
+
+        sequence = 0
+        last_hash = _ZERO_HASH
+        chain_started = False
+        with open(self._path, "r", encoding="utf-8") as fh:
+            for line_number, raw_line in enumerate(fh, start=1):
+                line = raw_line.rstrip("\r\n")
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"Invalid audit JSON on line {line_number}") from exc
+                if not isinstance(data, dict):
+                    raise ValueError(f"Invalid audit record on line {line_number}")
+
+                sequence += 1
+                integrity = data.pop(_INTEGRITY_FIELD, None)
+                if integrity is None:
+                    if chain_started:
+                        raise ValueError(
+                            f"Unchained audit record after hash chain on line {line_number}"
+                        )
+                    # Preserve a verifiable anchor when extending a pre-chain JSONL log.
+                    seed_material = f"{last_hash}\0{line}".encode("utf-8")
+                    last_hash = hashlib.sha256(seed_material).hexdigest()
+                    continue
+
+                if not isinstance(integrity, dict):
+                    raise ValueError(f"Invalid audit integrity metadata on line {line_number}")
+                if integrity.get("sequence") != sequence:
+                    raise ValueError(f"Invalid audit sequence on line {line_number}")
+                if integrity.get("previous_hash") != last_hash:
+                    raise ValueError(f"Broken audit hash chain on line {line_number}")
+                expected_hash = _record_hash(
+                    data, sequence, last_hash
+                )
+                if integrity.get("hash") != expected_hash:
+                    raise ValueError(f"Audit record hash mismatch on line {line_number}")
+                last_hash = expected_hash
+                chain_started = True
+        return sequence, last_hash
+
+    def _append_record(self, record: Union[AuditEvent, AuditRecord, IncidentResponse]) -> None:
+        payload = json.loads(record.model_dump_json())
+        sequence = self._sequence + 1
+        digest = _record_hash(payload, sequence, self._last_hash)
+        payload[_INTEGRITY_FIELD] = {
+            "sequence": sequence,
+            "previous_hash": self._last_hash,
+            "hash": digest,
+        }
+        with open(self._path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, separators=(",", ":"), ensure_ascii=False) + "\n")
+        self._sequence = sequence
+        self._last_hash = digest
         # Restore last event hash from disk if log file already exists
         self._initialize_last_hash()
 
@@ -184,17 +261,14 @@ class AuditLogger:
 
             self._last_event_hash = event.event_hash
             self._events.append(event)
-            line = event.model_dump_json() + "\n"
-            with open(self._path, "a", encoding="utf-8") as fh:
-                fh.write(line)
+            self._append_record(event)
         return event
 
     def log_pipeline_record(self, record: Union[AuditRecord, IncidentResponse]) -> None:
         """Record an end-to-end incident response / audit record."""
         with self._lock:
             self._pipeline_records.append(record)
-            with open(self._path, "a", encoding="utf-8") as fh:
-                fh.write(record.model_dump_json() + "\n")
+            self._append_record(record)
 
     def log(self, record: Union[AuditEvent, AuditRecord, IncidentResponse]) -> None:
         """Backwards compatibility for logging AuditEvent or legacy AuditRecord."""
@@ -204,9 +278,23 @@ class AuditLogger:
 
         with self._lock:
             self._pipeline_records.append(record)
-            line = record.model_dump_json() + "\n"
-            with open(self._path, "a", encoding="utf-8") as fh:
-                fh.write(line)
+            self._append_record(record)
+
+    def verify_integrity(self) -> bool:
+        """Return whether persisted audit entries form a valid hash chain."""
+        with self._lock:
+            try:
+                self._load_integrity_state()
+            except (OSError, ValueError):
+                return False
+            if not self._path.exists() or self._path.stat().st_size == 0:
+                return True
+            with open(self._path, "r", encoding="utf-8") as fh:
+                return any(
+                    _INTEGRITY_FIELD in json.loads(line)
+                    for line in fh
+                    if line.strip()
+                )
 
     def get_events_for_incident(self, incident_id: str) -> List[AuditEvent]:
         """Return all audit events for a given incident strictly in chronological order."""
@@ -395,6 +483,8 @@ class AuditLogger:
             self._last_event_hash = None
             if self._path.exists():
                 os.remove(self._path)
+            self._sequence = 0
+            self._last_hash = _ZERO_HASH
 
 
 # Module-level singleton

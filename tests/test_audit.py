@@ -75,6 +75,23 @@ def test_pipeline_records_persist_alongside_events(logger: AuditLogger):
     assert persisted[0].incident.id == record.incident.id
 
 
+def test_hash_chain_verifies_after_restart_and_detects_tampering(logger: AuditLogger):
+    logger.record_event(
+        incident_id="integrity-test",
+        component_name="Orchestrator",
+        event_type="incident_received",
+        success=True,
+        explanation="Incident received.",
+    )
+    logger.log(_make_record())
+    assert logger.verify_integrity() is True
+    assert AuditLogger(path=logger.path).verify_integrity() is True
+
+    lines = logger.path.read_text(encoding="utf-8").splitlines()
+    lines[0] = lines[0].replace("Incident received.", "Tampered event.")
+    logger.path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    assert logger.verify_integrity() is False
 # ==============================================================================
 # End-to-End Audit Trail & Observability Scenario Tests
 # ==============================================================================

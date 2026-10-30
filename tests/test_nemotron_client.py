@@ -74,12 +74,17 @@ def test_client_default_configuration(monkeypatch):
     """Test defaults when no environment variables or arguments are provided."""
     monkeypatch.delenv("NEBIUS_API_KEY", raising=False)
     monkeypatch.delenv("NEMOTRON_API_KEY", raising=False)
+    monkeypatch.delenv("NEBIUS_TOKEN_FACTORY_API_KEY", raising=False)
     monkeypatch.delenv("NEBIUS_API_BASE", raising=False)
     monkeypatch.delenv("NEBIUS_BASE_URL", raising=False)
+    monkeypatch.delenv("NEBIUS_TOKEN_FACTORY_BASE_URL", raising=False)
     monkeypatch.delenv("NEBIUS_MODEL_ID", raising=False)
+    monkeypatch.delenv("NEBIUS_MODEL", raising=False)
     monkeypatch.delenv("NEMOTRON_MODEL", raising=False)
     monkeypatch.delenv("NEBIUS_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("NEMOTRON_TIMEOUT_SECONDS", raising=False)
     monkeypatch.delenv("NEBIUS_MOCK_MODE", raising=False)
+    monkeypatch.delenv("NEMOTRON_MOCK_MODE", raising=False)
 
     client = NemotronClient()
     assert client.api_key is None
@@ -103,6 +108,42 @@ def test_client_configuration_from_env(monkeypatch):
     assert client.model_id == "nvidia/nemotron-custom-model"
     assert client.timeout == 45.5
     assert client.mock_mode is True
+
+
+def test_client_supports_documented_legacy_aliases(monkeypatch):
+    monkeypatch.delenv("NEBIUS_API_KEY", raising=False)
+    monkeypatch.setenv("NEMOTRON_API_KEY", "legacy-key")
+    monkeypatch.setenv("NEBIUS_TOKEN_FACTORY_BASE_URL", "https://legacy.example/v1")
+    monkeypatch.setenv("NEBIUS_MODEL", "legacy-model")
+    monkeypatch.setenv("NEMOTRON_TIMEOUT_SECONDS", "12")
+    monkeypatch.setenv("NEMOTRON_MOCK_MODE", "true")
+
+    client = NemotronClient()
+
+    assert client.api_key == "legacy-key"
+    assert client.base_url == "https://legacy.example/v1"
+    assert client.model_id == "legacy-model"
+    assert client.timeout == 12
+    assert client.mock_mode is True
+
+    monkeypatch.delenv("NEMOTRON_API_KEY")
+    monkeypatch.setenv("NEBIUS_TOKEN_FACTORY_API_KEY", "token-factory-key")
+    assert NemotronClient().api_key == "token-factory-key"
+
+
+def test_canonical_environment_variables_take_precedence(monkeypatch):
+    monkeypatch.setenv("NEBIUS_API_KEY", "canonical-key")
+    monkeypatch.setenv("NEMOTRON_API_KEY", "legacy-key")
+    monkeypatch.setenv("NEBIUS_API_BASE", "https://canonical.example/v1")
+    monkeypatch.setenv("NEBIUS_BASE_URL", "https://legacy.example/v1")
+    monkeypatch.setenv("NEBIUS_MODEL_ID", "canonical-model")
+    monkeypatch.setenv("NEBIUS_MODEL", "legacy-model")
+
+    client = NemotronClient()
+
+    assert client.api_key == "canonical-key"
+    assert client.base_url == "https://canonical.example/v1"
+    assert client.model_id == "canonical-model"
 
 
 def test_constructor_overrides_env(monkeypatch):
@@ -208,7 +249,7 @@ def test_successful_chat_completion(mock_http_response_factory, sample_messages)
         "id": "chatcmpl-test-12345",
         "object": "chat.completion",
         "created": 1700000000,
-        "model": "nvidia/nemotron-3-super-120b-a12b",
+        "model": DEFAULT_MODEL_ID,
         "choices": [
             {
                 "index": 0,
@@ -233,13 +274,13 @@ def test_successful_chat_completion(mock_http_response_factory, sample_messages)
 
         # Verify request parameters
         req_arg = mock_urlopen.call_args[0][0]
-        assert req_arg.full_url == "https://api.tokenfactory.nebius.com/v1/chat/completions"
+        assert req_arg.full_url == f"{DEFAULT_BASE_URL}/chat/completions"
         assert req_arg.headers["Authorization"] == "Bearer test-api-key"
         assert req_arg.headers["Content-type"] == "application/json"
 
         # Verify payload
         sent_body = json.loads(req_arg.data.decode("utf-8"))
-        assert sent_body["model"] == "nvidia/nemotron-3-super-120b-a12b"
+        assert sent_body["model"] == DEFAULT_MODEL_ID
         assert sent_body["temperature"] == 0.1
         assert len(sent_body["messages"]) == 2
 
