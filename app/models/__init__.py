@@ -25,6 +25,17 @@ from typing import Any, ClassVar, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from src.schemas import IncidentPayload as MonitoringIncidentPayload
+
+
+def incident_from_monitoring_payload(payload: MonitoringIncidentPayload) -> "Incident":
+    """Convert src.schemas.IncidentPayload into app.models.Incident.
+
+    This is the explicit adapter used when a monitoring detector emits a structured incident
+    that must enter the application recovery pipeline.
+    """
+    return Incident.from_monitoring_payload(payload)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Enumerations
@@ -82,7 +93,10 @@ class AuditEventType(str, enum.Enum):
     INCIDENT_RECEIVED = "incident_received"
     INCIDENT_DETECTED = "incident_detected"
     STATE_LOADED = "state_loaded"
+    DIAGNOSIS_COMPLETED = "diagnosis_completed"
+    DIAGNOSIS_FALLBACK = "diagnosis_fallback"
     ACTION_PROPOSED = "action_proposed"
+    ACTION_RECOMMENDED = "action_recommended"
     POLICY_EVALUATED = "policy_evaluated"
     RECOVERY_EXECUTED = "recovery_executed"
     RECOVERY_SKIPPED = "recovery_skipped"
@@ -134,6 +148,9 @@ class Incident(BaseModel):
                                   description="UTC timestamp of detection")
     resolved_at: Optional[datetime] = Field(default=None,
                                             description="UTC timestamp when resolved (if applicable)")
+    metrics: Optional[Dict[str, Any]] = Field(default=None, description="Optional detached metrics snapshot")
+    logs: List[str] = Field(default_factory=list, description="Optional log lines associated with the incident")
+    evidence: List[Dict[str, Any]] = Field(default_factory=list, description="Optional evidence items")
 
     @model_validator(mode="before")
     @classmethod
@@ -153,6 +170,28 @@ class Incident(BaseModel):
         if " " in v:
             raise ValueError("service_name must not contain spaces")
         return v
+
+    @classmethod
+    def from_monitoring_payload(cls, payload: MonitoringIncidentPayload) -> "Incident":
+        """Create app.models.Incident from src.schemas.IncidentPayload."""
+        return cls(
+            id=payload.incident_id,
+            service_name=payload.service,
+            severity=IncidentSeverity(payload.severity.value.lower()),
+            title=payload.summary,
+            description=payload.summary,
+            status=IncidentStatus.DETECTED,
+            metrics={
+                "latency_p50_ms": payload.metrics.latency_p50_ms,
+                "latency_p99_ms": payload.metrics.latency_p99_ms,
+                "error_rate_pct": payload.metrics.error_rate_pct,
+                "request_rate_rps": payload.metrics.request_rate_rps,
+                "cpu_utilization_pct": payload.metrics.cpu_utilization_pct,
+                "memory_utilization_pct": payload.metrics.memory_utilization_pct,
+            },
+            logs=[log.model_dump(mode="json") for log in payload.logs],
+            evidence=[item.model_dump(mode="json") for item in payload.evidence],
+        )
 
 
 class SystemState(BaseModel):
@@ -400,3 +439,50 @@ ServiceInfo = SystemState
 class AuditRecord(IncidentResponse):
     """Backwards-compatible alias for earlier tests and routes expecting AuditRecord."""
     pass
+
+
+class RecoveryRequest(BaseModel):
+    """Request payload for POST /incidents/recover."""
+
+    incident_id: str = Field(..., min_length=1, max_length=64, description="Incident ID")
+    incident_type: str = Field(..., min_length=1, max_length=128, description="Incident type / classification")
+    affected_service: str = Field(..., min_length=1, max_length=128, description="Affected service name")
+    proposed_recovery_action: RecoveryAction = Field(..., description="Proposed recovery action")
+    current_system_state: SystemState = Field(..., description="Current simulated system state")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _support_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "service_name" in data and "affected_service" not in data:
+                data["affected_service"] = data["service_name"]
+            if "recovery_action" in data and "proposed_recovery_action" not in data:
+                data["proposed_recovery_action"] = data["recovery_action"]
+            if "system_state" in data and "current_system_state" not in data:
+                data["current_system_state"] = data["system_state"]
+        return data
+
+
+class RecoveryResponse(BaseModel):
+    """Response payload returned by POST /incidents/recover."""
+
+    incident_id: str = Field(..., description="Incident ID")
+    policy_decision: Optional[PolicyDecision] = Field(default=None, description="Policy decision")
+    recovery_result: Optional[RecoveryResult] = Field(default=None, description="Recovery result")
+    verification_result: Optional[VerificationResult] = Field(default=None, description="Verification result")
+    final_status: PipelineStatus = Field(..., description="Final pipeline status")
+    audit_events: List[AuditEvent] = Field(default_factory=list, description="Audit events for this recovery")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _support_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "pipeline_status" in data and "final_status" not in data:
+                data["final_status"] = data["pipeline_status"]
+            if "status" in data and "final_status" not in data:
+                data["final_status"] = data["status"]
+        return data
+
+    @property
+    def status(self) -> PipelineStatus:
+        return self.final_status

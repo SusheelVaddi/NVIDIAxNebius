@@ -90,6 +90,35 @@ class InfrastructureSimulator:
         with self._lock:
             return self._services.get(name)
 
+    def register_service(
+        self,
+        service_name: Union[str, SystemState],
+        status: ServiceStatus = ServiceStatus.HEALTHY,
+        cpu_percent: float = 20.0,
+        memory_percent: float = 30.0,
+        error_rate: float = 0.01,
+        queue_size: int = 0,
+        instances: int = 1,
+    ) -> SystemState:
+        """Register a new service dynamically into the infrastructure fleet."""
+        with self._lock:
+            if isinstance(service_name, SystemState):
+                state = service_name
+                self._services[state.service_name] = state
+                return state
+
+            state = SystemState(
+                service_name=service_name,
+                status=status,
+                cpu_percent=cpu_percent,
+                memory_percent=memory_percent,
+                error_rate=error_rate,
+                queue_size=queue_size,
+                instances=instances,
+            )
+            self._services[service_name] = state
+            return state
+
     # -- incident injection -------------------------------------------------
 
     def inject_incident(
@@ -229,6 +258,12 @@ class InfrastructureSimulator:
                     "error_rate": error_rate,
                 },
             )
+
+    def update_service_state(self, state: SystemState) -> None:
+        """Update simulated service state with the given state snapshot."""
+        with self._lock:
+            if state.service_name in self._services:
+                self._services[state.service_name] = state
 
     # -- admin --------------------------------------------------------------
 

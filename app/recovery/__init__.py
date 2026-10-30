@@ -1,7 +1,11 @@
-"""Simulated recovery actions and executor.
+"""Simulated recovery actions, executor, and AI planners.
 
 Exports:
 - SimulatedRecoveryExecutor: class executing recovery actions on in-memory infrastructure
+- RecoveryPlanner: abstract interface for proposing recovery actions
+- DeterministicMockPlanner: deterministic rule-based planner
+- NebiusPlanner: production planner for Nebius Token Factory (NVIDIA Nemotron)
+- AIPlanProposal: validated structured output from model
 - pick_action: helper to recommend an action for an incident
 - execute: legacy functional execution wrapper
 """
@@ -19,6 +23,12 @@ from app.models import (
     RecoveryResult,
 )
 from app.recovery.executor import SimulatedRecoveryExecutor
+from app.recovery.planner import (
+    AIPlanProposal,
+    DeterministicMockPlanner,
+    NebiusPlanner,
+    RecoveryPlanner,
+)
 
 
 def pick_action(incident: Incident) -> RecoveryActionType:
@@ -57,6 +67,10 @@ def execute(
 
 __all__ = [
     "SimulatedRecoveryExecutor",
+    "RecoveryPlanner",
+    "DeterministicMockPlanner",
+    "NebiusPlanner",
+    "AIPlanProposal",
     "pick_action",
     "execute",
 ]

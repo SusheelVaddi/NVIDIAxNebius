@@ -107,13 +107,27 @@ class DeterministicPolicyGate:
 
         # Protected service critical safety check
         severity = action.parameters.get("severity")
-        if action.target_service in self.protected_services and severity == "critical":
+        if severity is None:
+            severity = action.parameters.get("incident_severity")
+        if severity is None:
+            severity = action.parameters.get("incidentSeverity")
+        if action.target_service in self.protected_services and str(severity).lower() == "critical":
             return PolicyDecision(
                 incident_id=action.incident_id,
                 verdict=DecisionVerdict.MANUAL_REVIEW,
                 reason=(
                     f"Target service '{action.target_service}' is protected and incident severity "
                     f"is critical. Automated recovery requires manual review."
+                ),
+                decided_by="DeterministicPolicyGate",
+            )
+        if action.target_service in self.protected_services and severity is None:
+            return PolicyDecision(
+                incident_id=action.incident_id,
+                verdict=DecisionVerdict.MANUAL_REVIEW,
+                reason=(
+                    f"Target service '{action.target_service}' is protected and missing incident severity "
+                    f"requires manual review before automated recovery."
                 ),
                 decided_by="DeterministicPolicyGate",
             )

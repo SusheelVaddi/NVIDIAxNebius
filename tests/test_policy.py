@@ -38,6 +38,26 @@ def test_critical_protected_service_manual_review():
     assert evaluate(inc, svc) == PolicyDecision.MANUAL_REVIEW
 
 
+def test_critical_protected_service_manual_review_must_use_incident_severity_parameter():
+    from app.models import RecoveryAction, RecoveryActionType
+    from app.policy.gate import DeterministicPolicyGate
+
+    action = RecoveryAction(
+        incident_id="inc-123",
+        action_type=RecoveryActionType.RESTART_SERVICE,
+        target_service="database",
+        parameters={},
+        safe_for_simulation=True,
+        risk_level=1,
+        retry_count=0,
+    )
+    state = _make_service("database", ServiceStatus.DOWN)
+
+    decision = DeterministicPolicyGate().evaluate(action, state)
+    assert decision.verdict == "manual_review"
+    assert "manual review" in decision.reason.lower()
+
+
 def test_critical_non_protected_service_manual_review():
     """CRITICAL exceeds AUTO_APPROVE_MAX_SEVERITY (HIGH) → MANUAL_REVIEW."""
     inc = Incident(service_name="web", severity=IncidentSeverity.CRITICAL, description="x")

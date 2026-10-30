@@ -1,41 +1,75 @@
 """Orchestrator for the Autonomous IT Reliability & Incident Recovery System.
 
 Coordinates the end-to-end recovery lifecycle:
-1. Receive an incident.
-2. Load current simulated system state.
-3. Generate or receive a proposed recovery action.
-4. Pass the action through a deterministic policy gate.
-5. Execute the action only if the policy gate approves it.
-6. Independently verify the resulting system state.
-7. Record every step in the audit log.
-8. Return a complete IncidentResponse.
+1. Receive incident.
+2. Load system state.
+3. Ask RecoveryPlanner for a proposed action.
+4. Record the recommendation in the audit log.
+5. Send the action to DeterministicPolicyGate.
+6. Execute only approved actions.
+7. Independently verify the resulting state.
+8. Record every result in the audit log.
+9. Return IncidentResponse.
 """
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
 from app.audit import AuditLogger, audit_logger as default_audit_logger
+from app.diagnosis import (
+    DiagnosisError,
+    DiagnosisResult,
+    DeterministicIncidentDiagnoser,
+    IncidentDiagnoser,
+    NemotronAPIError,
+    NemotronAuthError,
+    NemotronClient,
+    NemotronClientError,
+    NemotronConnectionError,
+    NemotronResponseError,
+    NemotronTimeoutError,
+)
 from app.infrastructure import InfrastructureSimulator, infra as default_infra
 from app.models import (
     AuditEventType,
-    DecisionVerdict,
     Incident,
     IncidentResponse,
-    IncidentSeverity,
     IncidentStatus,
     PipelineStatus,
-    PolicyDecision,
     RecoveryAction,
-    RecoveryActionType,
     RecoveryResult,
     VerificationOutcome,
     VerificationResult,
 )
 from app.policy import DeterministicPolicyGate
-from app.recovery import SimulatedRecoveryExecutor
+from app.recovery import (
+    DeterministicMockPlanner,
+    NebiusPlanner,
+    RecoveryPlanner,
+    SimulatedRecoveryExecutor,
+)
 from app.verification import IndependentVerifier
+from src.schemas import IncidentPayload as MonitoringIncidentPayload
+
+
+def _safe_diagnosis_fallback_reason(err: Exception) -> str:
+    """Classify a diagnosis/client error into a safe category without leaking secrets or payloads."""
+    if isinstance(err, DiagnosisError):
+        return "schema_validation_failed"
+    if isinstance(err, NemotronTimeoutError):
+        return "timeout"
+    if isinstance(err, NemotronConnectionError):
+        return "connection_failure"
+    if isinstance(err, NemotronAuthError):
+        return "authentication_failure"
+    if isinstance(err, NemotronAPIError):
+        return "api_error"
+    if isinstance(err, NemotronResponseError):
+        return "response_error"
+    return "client_error"
 
 
 class Orchestrator:
@@ -48,57 +82,63 @@ class Orchestrator:
         executor: Optional[SimulatedRecoveryExecutor] = None,
         verifier: Optional[IndependentVerifier] = None,
         audit_logger: Optional[AuditLogger] = None,
+        planner: Optional[RecoveryPlanner] = None,
+        diagnoser: Optional[IncidentDiagnoser] = None,
     ) -> None:
         self.infra = infra if infra is not None else default_infra
         self.policy_gate = policy_gate if policy_gate is not None else DeterministicPolicyGate()
         self.executor = executor if executor is not None else SimulatedRecoveryExecutor()
         self.verifier = verifier if verifier is not None else IndependentVerifier()
         self.audit_logger = audit_logger if audit_logger is not None else default_audit_logger
+        api_key = os.getenv("NEBIUS_TOKEN_FACTORY_API_KEY", "").strip()
+        if planner is not None:
+            self.planner = planner
+        elif api_key:
+            self.planner = NebiusPlanner(api_key=api_key)
+        else:
+            self.planner = DeterministicMockPlanner()
+        if diagnoser is not None:
+            self.diagnoser = diagnoser
+        elif os.getenv("ENABLE_AI_DIAGNOSIS", "").strip().lower() in {
+            "1", "true", "yes", "t", "on"
+        }:
+            self.diagnoser = IncidentDiagnoser(client=NemotronClient())
+        else:
+            self.diagnoser = None
+
+    @staticmethod
+    def from_monitoring_payload(payload: MonitoringIncidentPayload, *, infra=None, audit_logger=None, **kwargs) -> "Orchestrator":
+        """Create an orchestrator configured to consume a monitoring IncidentPayload."""
+        incident = Incident.from_monitoring_payload(payload)
+        return Orchestrator(infra=infra, audit_logger=audit_logger, **kwargs).with_incident(incident)
 
     def propose_action(
         self,
         incident: Incident,
         target_instances: Optional[int] = None,
     ) -> RecoveryAction:
-        """Generate a proposed recovery action based on incident traits if none is supplied."""
-        desc = f"{incident.title} {incident.description}".lower()
+        """Generate a proposed recovery action based on incident traits via the planner."""
+        current_state = self.infra.get_service(incident.service_name)
+        action = self.planner.plan(incident, current_state)
+        if target_instances is not None:
+            action.parameters["target_instances"] = target_instances
+        return action
 
-        params = {"severity": incident.severity.value}
-
-        if "queue" in desc:
-            action_type = RecoveryActionType.CLEAR_QUEUE
-        elif "scale" in desc:
-            action_type = RecoveryActionType.SCALE_SERVICE
-            current_state = self.infra.get_service(incident.service_name)
-            instances = target_instances or ((current_state.instances + 1) if current_state else 2)
-            params["target_instances"] = instances
-        elif incident.severity == IncidentSeverity.CRITICAL:
-            action_type = RecoveryActionType.FAILOVER
-        elif incident.severity == IncidentSeverity.HIGH:
-            action_type = RecoveryActionType.SCALE_UP
-        else:
-            action_type = RecoveryActionType.RESTART_SERVICE
-
-        return RecoveryAction(
-            incident_id=incident.id,
-            action_type=action_type,
-            target_service=incident.service_name,
-            parameters=params,
-            safe_for_simulation=True,
-            risk_level=1,
-            retry_count=0,
-        )
+    def with_incident(self, incident: Incident) -> "Orchestrator":
+        """Attach an incident to the orchestrator for a single pipeline run."""
+        self._pending_incident = incident
+        return self
 
     def handle_incident(
         self,
         incident: Incident,
         proposed_action: Optional[RecoveryAction] = None,
     ) -> IncidentResponse:
-        """Execute the complete 8-step incident recovery pipeline."""
+        """Execute the complete 9-step incident recovery pipeline."""
         started_at = datetime.now(timezone.utc)
 
         # -------------------------------------------------------------------
-        # Step 1: Receive an incident
+        # Step 1: Receive incident
         # -------------------------------------------------------------------
         incident.status = IncidentStatus.DETECTED
         self.audit_logger.record_event(
@@ -114,7 +154,7 @@ class Orchestrator:
         )
 
         # -------------------------------------------------------------------
-        # Step 2: Load the current simulated system state
+        # Step 2: Load system state
         # -------------------------------------------------------------------
         state_before = self.infra.get_service(incident.service_name)
         state_found = state_before is not None
@@ -132,25 +172,113 @@ class Orchestrator:
         )
 
         # -------------------------------------------------------------------
-        # Step 3: Generate or receive a proposed recovery action
+        # Step 3: Ask for a proposed action
         # -------------------------------------------------------------------
-        action = proposed_action or self.propose_action(incident)
+        diagnosis: Optional[DiagnosisResult] = None
+        diagnosis_fallback: Optional[dict[str, str]] = None
+        planner_name = getattr(self.planner, "__class__", type(self.planner)).__name__
+
+        if proposed_action is not None:
+            action = proposed_action
+        elif self.diagnoser is None:
+            action = self.planner.plan(incident, state_before)
+        else:
+            if state_before is not None:
+                try:
+                    diagnosis = self.diagnoser.diagnose(incident, state_before)
+                except (DiagnosisError, NemotronClientError) as exc:
+                    fallback_reason = _safe_diagnosis_fallback_reason(exc)
+                    diagnosis_fallback = {
+                        "status": "failed",
+                        "reason": fallback_reason,
+                    }
+                else:
+                    self.audit_logger.record_event(
+                        incident_id=incident.id,
+                        component_name="IncidentDiagnoser",
+                        event_type=AuditEventType.DIAGNOSIS_COMPLETED,
+                        success=True,
+                        explanation=(
+                            "AI diagnosis completed and validated; it is advisory only."
+                        ),
+                        details={
+                            "source": "ai",
+                            "diagnosis": diagnosis.model_dump(mode="json"),
+                        },
+                    )
+            else:
+                diagnosis_fallback = {
+                    "status": "unavailable",
+                    "reason": "system_state_unavailable",
+                }
+
+            if diagnosis_fallback is not None:
+                diagnosis = DeterministicIncidentDiagnoser().diagnose(
+                    incident, state_before
+                )
+                self.audit_logger.record_event(
+                    incident_id=incident.id,
+                    component_name="DeterministicIncidentDiagnoser",
+                    event_type=AuditEventType.DIAGNOSIS_FALLBACK,
+                    success=True,
+                    explanation=(
+                        "AI diagnosis was unavailable; deterministic diagnosis was "
+                        "derived from available incident and infrastructure evidence."
+                    ),
+                    details={
+                        "source": "deterministic_fallback",
+                        "diagnosis_fallback": diagnosis_fallback,
+                        "diagnosis": diagnosis.model_dump(mode="json"),
+                    },
+                )
+
+            if diagnosis is None:
+                raise RuntimeError("Diagnoser completed without returning a diagnosis.")
+
+            action = self.planner.plan_with_diagnosis(
+                incident,
+                state_before,
+                diagnosis,
+            )
+            planner_name = getattr(self.planner, "__class__", type(self.planner)).__name__
+
+        # -------------------------------------------------------------------
+        # Step 4: Record the recommendation in the audit log
+        # -------------------------------------------------------------------
+        action_details = {
+            "recovery_action": action.model_dump(mode="json"),
+            "planner": planner_name,
+        }
+        if diagnosis is not None and diagnosis_fallback is None:
+            action_details["diagnosis"] = diagnosis.model_dump(mode="json")
+        if diagnosis_fallback is not None:
+            action_details["diagnosis_fallback"] = diagnosis_fallback
+        action_summary = (
+            f"RecoveryPlanner ({planner_name}) recommended action '{action.action_type.value}' "
+            f"targeting service '{action.target_service}'"
+        )
+        param_keys = [k for k in action.parameters.keys() if k != "diagnosis_likely_cause"]
+        if param_keys:
+            filtered_params = {k: action.parameters[k] for k in param_keys}
+            action_summary += f" with parameters {filtered_params}"
+        action_summary += "."
+        if len(action_summary) > 1024:
+            action_summary = action_summary[:1021] + "..."
+
         self.audit_logger.record_event(
             incident_id=incident.id,
-            component_name="Orchestrator",
+            component_name="RecoveryPlanner",
             event_type=AuditEventType.ACTION_PROPOSED,
             success=True,
-            explanation=(
-                f"Proposed recovery action '{action.action_type.value}' targeting "
-                f"service '{action.target_service}' with parameters {action.parameters}."
-            ),
-            details={"recovery_action": action.model_dump(mode="json")},
+            explanation=action_summary,
+            details=action_details,
         )
 
         # -------------------------------------------------------------------
-        # Step 4: Pass the action through a deterministic policy gate
+        # Step 5: Send the action to DeterministicPolicyGate
         # -------------------------------------------------------------------
-        policy_decision = self.policy_gate.evaluate(action, state_before)
+        action_target_state = self.infra.get_service(action.target_service)
+        policy_decision = self.policy_gate.evaluate(action, action_target_state)
         is_approved = policy_decision.is_approved
         self.audit_logger.record_event(
             incident_id=incident.id,
@@ -162,7 +290,7 @@ class Orchestrator:
         )
 
         # -------------------------------------------------------------------
-        # Step 5: Execute the action only if the policy gate approves it
+        # Step 6: Execute only approved actions
         # -------------------------------------------------------------------
         recovery_result: Optional[RecoveryResult] = None
         verification_result: Optional[VerificationResult] = None
@@ -204,7 +332,7 @@ class Orchestrator:
             )
 
             # ---------------------------------------------------------------
-            # Step 6: Independently verify the resulting system state
+            # Step 7: Independently verify the resulting state
             # ---------------------------------------------------------------
             if recovery_result.success:
                 verification_result = self.verifier.verify(
@@ -235,7 +363,7 @@ class Orchestrator:
                 pipeline_status = PipelineStatus.RECOVERY_FAILED
 
         # -------------------------------------------------------------------
-        # Step 7: Record final pipeline completion in audit log
+        # Step 8: Record every result in the audit log
         # -------------------------------------------------------------------
         self.audit_logger.record_event(
             incident_id=incident.id,
@@ -250,7 +378,7 @@ class Orchestrator:
         )
 
         # -------------------------------------------------------------------
-        # Step 8: Return a complete IncidentResponse
+        # Step 9: Return IncidentResponse
         # -------------------------------------------------------------------
         state_after = self.infra.get_service(incident.service_name)
         incident_events = self.audit_logger.get_events_for_incident(incident.id)

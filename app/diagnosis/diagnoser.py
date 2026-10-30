@@ -18,7 +18,12 @@ from app.diagnosis.client import NemotronClient
 from app.diagnosis.exceptions import DiagnosisError
 from app.diagnosis.models import DiagnosisResult
 from app.diagnosis.prompts import build_diagnosis_messages
-from app.models import Incident, SystemState
+from app.models import (
+    Incident,
+    IncidentSeverity,
+    RecoveryActionType,
+    SystemState,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +144,64 @@ class IncidentDiagnoser:
             raise DiagnosisError(
                 f"Diagnosis schema validation failed: {err}"
             ) from err
+
+
+class DeterministicIncidentDiagnoser:
+    """Create a low-confidence diagnosis grounded only in incident and state data."""
+
+    def diagnose(
+        self,
+        incident: Incident,
+        state: Optional[SystemState],
+    ) -> DiagnosisResult:
+        evidence = [
+            f"Incident severity is {incident.severity.value}.",
+        ]
+        if incident.title:
+            evidence.append(f"Incident title: {incident.title}.")
+        if incident.description:
+            evidence.append(f"Incident description: {incident.description}.")
+
+        action = RecoveryActionType.RESTART_SERVICE
+        if state is None:
+            cause = "Insufficient infrastructure telemetry to determine the likely cause."
+            evidence.append("Infrastructure state is unavailable.")
+        elif state.queue_size > 0:
+            cause = "Observed queue backlog may be contributing to the incident."
+            evidence.append(f"Queue size is {state.queue_size}.")
+            action = RecoveryActionType.CLEAR_QUEUE
+        elif state.cpu_percent > 70.0:
+            cause = "Observed high CPU utilization may be contributing to the incident."
+            evidence.append(f"CPU utilization is {state.cpu_percent:.1f}%.")
+            action = RecoveryActionType.SCALE_SERVICE
+        elif state.memory_percent > 85.0:
+            cause = "Observed high memory utilization may be contributing to the incident."
+            evidence.append(f"Memory utilization is {state.memory_percent:.1f}%.")
+        elif state.error_rate > 0.1:
+            cause = "Observed elevated error rate may be contributing to the incident."
+            evidence.append(f"Error rate is {state.error_rate:.2f}.")
+        elif state.status.value != "healthy":
+            cause = f"Service state is {state.status.value}; the specific cause is undetermined."
+            evidence.append(f"Service status is {state.status.value}.")
+        else:
+            cause = "Available telemetry does not identify a specific failure cause."
+            evidence.append("No configured CPU, memory, queue, or error-rate threshold is exceeded.")
+
+        if incident.severity == IncidentSeverity.CRITICAL and action == RecoveryActionType.RESTART_SERVICE:
+            action = RecoveryActionType.FAILOVER
+        elif incident.severity == IncidentSeverity.HIGH and action == RecoveryActionType.RESTART_SERVICE:
+            action = RecoveryActionType.SCALE_UP
+
+        return DiagnosisResult(
+            likely_cause=cause,
+            evidence=evidence,
+            confidence=0.3,
+            recommended_action_id=action.value,
+            rationale="Use the deterministic recovery proposal derived from the available incident and telemetry.",
+            uncertainty_or_notes=(
+                "Deterministic fallback diagnosis; validate the cause with an operator."
+            ),
+        )
 
 
 # Backwards compatibility alias

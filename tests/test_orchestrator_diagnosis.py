@@ -40,7 +40,7 @@ from app.models import (
 )
 from app.orchestrator import Orchestrator
 from app.policy import DeterministicPolicyGate
-from app.recovery import SimulatedRecoveryExecutor
+from app.recovery import DeterministicMockPlanner, SimulatedRecoveryExecutor
 from app.verification import IndependentVerifier
 
 
@@ -285,8 +285,42 @@ def test_diagnosis_and_client_errors_trigger_fallback(
     fallback_info = action_event.details["diagnosis_fallback"]
     assert fallback_info["status"] == "failed"
     assert expected_reason_keyword in fallback_info["reason"]
+    fallback_event = next(
+        e for e in events if e.event_type == AuditEventType.DIAGNOSIS_FALLBACK.value
+    )
+    assert fallback_event.details["source"] == "deterministic_fallback"
+    assert fallback_event.details["diagnosis"]["confidence"] == 0.3
+    assert "diagnosis_likely_cause" in response.recovery_action.parameters
     # Ensure raw exception / trace is NOT leaked
     assert str(exception_to_raise) not in fallback_info["reason"] or expected_reason_keyword in fallback_info["reason"]
+
+
+def test_invalid_model_output_uses_audited_deterministic_diagnosis(
+    infra, audit, base_policy_gate
+):
+    incident = infra.inject_incident("web-frontend", IncidentSeverity.LOW)
+    mock_client = MagicMock(spec=NemotronClient)
+    mock_client.complete.return_value = '{"confidence": 2.0}'
+    diagnoser = IncidentDiagnoser(client=mock_client)
+    orchestrator = Orchestrator(
+        infra=infra,
+        policy_gate=base_policy_gate,
+        audit_logger=audit,
+        diagnoser=diagnoser,
+    )
+
+    response = orchestrator.handle_incident(incident)
+    events = audit.get_events_for_incident(incident.id)
+    fallback_event = next(
+        event
+        for event in events
+        if event.event_type == AuditEventType.DIAGNOSIS_FALLBACK.value
+    )
+
+    assert response.pipeline_status == PipelineStatus.SUCCESS
+    assert fallback_event.details["diagnosis_fallback"]["reason"] == "schema_validation_failed"
+    assert fallback_event.details["source"] == "deterministic_fallback"
+    assert fallback_event.details["diagnosis"]["confidence"] == 0.3
 
 
 # ==============================================================================
@@ -365,7 +399,7 @@ def test_explicit_proposed_action_bypasses_ai_diagnosis(
 def test_audit_event_count_order_and_metadata_preservation(
     infra, audit, base_policy_gate, successful_diagnosis_result
 ):
-    """Verify that audit events count (7) and exact sequence remain unchanged with AI diagnosis."""
+    """Verify diagnosis is audited before planning without changing later event order."""
     incident = infra.inject_incident("web-frontend", IncidentSeverity.LOW)
     diagnoser = _make_mock_diagnoser(successful_diagnosis_result)
 
@@ -382,13 +416,14 @@ def test_audit_event_count_order_and_metadata_preservation(
 
     events = audit.get_events_for_incident(incident.id)
 
-    # Exactly 7 events
-    assert len(events) == 7
+    # Diagnosis adds one event; the existing recovery-stage ordering is preserved.
+    assert len(events) == 8
 
     # Exact event sequence
     expected_event_types = [
         AuditEventType.INCIDENT_RECEIVED.value,
         AuditEventType.STATE_LOADED.value,
+        AuditEventType.DIAGNOSIS_COMPLETED.value,
         AuditEventType.ACTION_PROPOSED.value,
         AuditEventType.POLICY_EVALUATED.value,
         AuditEventType.RECOVERY_EXECUTED.value,
@@ -398,7 +433,11 @@ def test_audit_event_count_order_and_metadata_preservation(
     assert [e.event_type for e in events] == expected_event_types
 
     # ACTION_PROPOSED metadata structure
-    action_event = events[2]
+    diagnosis_event = events[2]
+    assert diagnosis_event.details["source"] == "ai"
+    assert diagnosis_event.details["diagnosis"]["likely_cause"] == successful_diagnosis_result.likely_cause
+
+    action_event = events[3]
     assert "recovery_action" in action_event.details
     assert "diagnosis" in action_event.details
 
@@ -413,6 +452,35 @@ def test_audit_event_count_order_and_metadata_preservation(
     # Verify chronological ordering
     for i in range(len(events) - 1):
         assert events[i].timestamp <= events[i + 1].timestamp
+
+
+def test_diagnosis_is_passed_to_recovery_planner(
+    infra, audit, base_policy_gate, successful_diagnosis_result
+):
+    class DiagnosisAwarePlanner(DeterministicMockPlanner):
+        def __init__(self):
+            self.received_diagnosis = None
+
+        def plan_with_diagnosis(self, incident, state, diagnosis):
+            self.received_diagnosis = diagnosis
+            return super().plan_with_diagnosis(incident, state, diagnosis)
+
+    incident = infra.inject_incident("web-frontend", IncidentSeverity.LOW)
+    planner = DiagnosisAwarePlanner()
+    orchestrator = Orchestrator(
+        infra=infra,
+        audit_logger=audit,
+        planner=planner,
+        diagnoser=_make_mock_diagnoser(successful_diagnosis_result),
+    )
+
+    response = orchestrator.handle_incident(incident)
+
+    assert planner.received_diagnosis == successful_diagnosis_result
+    assert (
+        response.recovery_action.parameters["diagnosis_likely_cause"]
+        == successful_diagnosis_result.likely_cause
+    )
 
 
 # ==============================================================================
@@ -590,5 +658,3 @@ def test_api_endpoint_with_env_enabled_ai_diagnosis(monkeypatch):
     assert data["recovery_action"]["action_type"] == "restart_service"
     assert "diagnosis_likely_cause" in data["recovery_action"]["parameters"]
     assert data["recovery_action"]["parameters"]["diagnosis_confidence"] == 0.88
-
-
