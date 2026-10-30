@@ -60,16 +60,17 @@ def test_health_check():
 def test_reset_requires_configured_admin_token(monkeypatch):
     monkeypatch.setenv("ADMIN_RESET_TOKEN", "test-admin-token")
 
-    assert client.post("/reset").status_code == 403
+    assert client.post("/reset").status_code == 401
     assert client.post(
-        "/reset", headers={"X-Admin-Reset-Token": "wrong-token"}
-    ).status_code == 403
+        "/reset", headers={"X-Admin-Token": "wrong-token"}
+    ).status_code == 401
 
     response = client.post(
-        "/reset", headers={"X-Admin-Reset-Token": "test-admin-token"}
+        "/reset", headers={"X-Admin-Token": "test-admin-token"}
     )
     assert response.status_code == 200
-    assert response.json() == {"status": "reset"}
+    assert response.json()["status"] == "reset"
+    assert response.json()["audit_cleared"] is False
 
 
 def test_dashboard_is_served_from_application():

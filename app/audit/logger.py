@@ -120,14 +120,20 @@ class AuditLogger:
 
     def __init__(self, path: Optional[Union[Path, str]] = None) -> None:
         self._path = Path(path) if path else _DEFAULT_LOG_FILE
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._events: List[AuditEvent] = []
         self._pipeline_records: List[Union[AuditRecord, IncidentResponse]] = []
         self._malformed_entries: List[Tuple[int, str, str]] = []
         self._last_event_hash: Optional[str] = None
+        self._integrity_load_error: Optional[str] = None
         if self._path.parent:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._sequence, self._last_hash = self._load_integrity_state()
+        try:
+            self._sequence, self._last_hash = self._load_integrity_state()
+            self._initialize_last_hash()
+        except (OSError, ValueError) as exc:
+            self._sequence, self._last_hash = 0, _ZERO_HASH
+            self._integrity_load_error = str(exc)
 
     def _load_integrity_state(self) -> tuple[int, str]:
         if not self._path.exists():
@@ -144,16 +150,20 @@ class AuditLogger:
                 try:
                     data = json.loads(line)
                 except json.JSONDecodeError as exc:
-                    raise ValueError(f"Invalid audit JSON on line {line_number}") from exc
+                    raise ValueError(
+                        f"Line {line_number}: malformed audit entry - invalid JSON"
+                    ) from exc
                 if not isinstance(data, dict):
-                    raise ValueError(f"Invalid audit record on line {line_number}")
+                    raise ValueError(
+                        f"Line {line_number}: malformed audit entry - record must be an object"
+                    )
 
                 sequence += 1
                 integrity = data.pop(_INTEGRITY_FIELD, None)
                 if integrity is None:
                     if chain_started:
                         raise ValueError(
-                            f"Unchained audit record after hash chain on line {line_number}"
+                            f"Line {line_number}: hash chain broken - record is missing integrity metadata"
                         )
                     # Preserve a verifiable anchor when extending a pre-chain JSONL log.
                     seed_material = f"{last_hash}\0{line}".encode("utf-8")
@@ -161,21 +171,40 @@ class AuditLogger:
                     continue
 
                 if not isinstance(integrity, dict):
-                    raise ValueError(f"Invalid audit integrity metadata on line {line_number}")
+                    raise ValueError(
+                        f"Line {line_number}: malformed audit entry - invalid integrity metadata"
+                    )
                 if integrity.get("sequence") != sequence:
-                    raise ValueError(f"Invalid audit sequence on line {line_number}")
+                    raise ValueError(
+                        f"Line {line_number}: hash chain broken - invalid record sequence"
+                    )
                 if integrity.get("previous_hash") != last_hash:
-                    raise ValueError(f"Broken audit hash chain on line {line_number}")
+                    raise ValueError(f"Line {line_number}: hash chain broken")
                 expected_hash = _record_hash(
                     data, sequence, last_hash
                 )
                 if integrity.get("hash") != expected_hash:
-                    raise ValueError(f"Audit record hash mismatch on line {line_number}")
+                    raise ValueError(
+                        f"Line {line_number}: tampering or hash corruption detected"
+                    )
                 last_hash = expected_hash
                 chain_started = True
         return sequence, last_hash
 
     def _append_record(self, record: Union[AuditEvent, AuditRecord, IncidentResponse]) -> None:
+        report = self.verify_integrity()
+        if not report.is_valid:
+            errors = "; ".join(report.errors)
+            raise RuntimeError(f"Cannot append to an invalid audit log: {errors}")
+
+        try:
+            self._sequence, self._last_hash = self._load_integrity_state()
+        except (OSError, ValueError) as exc:
+            self._integrity_load_error = str(exc)
+            raise RuntimeError(
+                f"Cannot append to an invalid audit log: {self._integrity_load_error}"
+            ) from exc
+
         payload = json.loads(record.model_dump_json())
         sequence = self._sequence + 1
         digest = _record_hash(payload, sequence, self._last_hash)
@@ -188,8 +217,6 @@ class AuditLogger:
             fh.write(json.dumps(payload, separators=(",", ":"), ensure_ascii=False) + "\n")
         self._sequence = sequence
         self._last_hash = digest
-        # Restore last event hash from disk if log file already exists
-        self._initialize_last_hash()
 
     @property
     def path(self) -> Path:
@@ -199,23 +226,17 @@ class AuditLogger:
         """Inspect persisted log file to resume the hash chain."""
         if not self._path.exists():
             return
-        try:
-            with open(self._path, "r", encoding="utf-8") as fh:
-                last_hash = None
-                for line in fh:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        data = json.loads(line)
-                        if "event_hash" in data and data["event_hash"]:
-                            last_hash = data["event_hash"]
-                    except Exception:
-                        pass
-                if last_hash:
-                    self._last_event_hash = last_hash
-        except Exception:
-            pass
+        with open(self._path, "r", encoding="utf-8") as fh:
+            last_hash = None
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                data = json.loads(line)
+                if data.get("event_hash"):
+                    last_hash = data["event_hash"]
+            if last_hash:
+                self._last_event_hash = last_hash
 
     def record_event(
         self,
@@ -259,9 +280,9 @@ class AuditLogger:
             if not event.event_hash:
                 event.event_hash = compute_event_hash(event, event.previous_hash)
 
+            self._append_record(event)
             self._last_event_hash = event.event_hash
             self._events.append(event)
-            self._append_record(event)
         return event
 
     def log_pipeline_record(self, record: Union[AuditRecord, IncidentResponse]) -> None:
@@ -390,6 +411,13 @@ class AuditLogger:
         """
         errors: List[str] = []
         warnings_list: List[str] = []
+
+        try:
+            self._sequence, self._last_hash = self._load_integrity_state()
+            self._integrity_load_error = None
+        except (OSError, ValueError) as exc:
+            self._integrity_load_error = str(exc)
+            errors.append(str(exc))
 
         # 1. Check for malformed entries encountered during file parsing
         if self._path.exists():
