@@ -38,7 +38,7 @@
       .dot.online { background: var(--green); box-shadow: 0 0 12px #76b90088; }
       .dot.offline { background: var(--red); }
       .intro { margin-bottom: 22px; color: var(--muted); line-height: 1.55; }
-      .overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px; }
+      .overview { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
       .metric, .panel, .service-card { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
       .metric { padding: 16px 18px; }
       .metric-label { color: var(--muted); font-size: .78rem; }
@@ -68,6 +68,10 @@
       .result-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
       .result-card { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-raised); }
       .result-card.wide { grid-column: 1 / -1; }
+      .lifecycle { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 11px; }
+      .lifecycle-step { min-width: 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-raised); }
+      .lifecycle-name { margin-bottom: 6px; color: var(--muted); font-size: .72rem; }
+      .lifecycle-state { font-size: .77rem; font-weight: 700; }
       .result-value { color: var(--muted); font-size: .85rem; line-height: 1.5; overflow-wrap: anywhere; }
       .result-value strong { color: var(--text); }
       .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 8px; background: #303a33; color: var(--text); font-size: .69rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
@@ -93,13 +97,17 @@
       .empty { padding: 18px 12px; border: 1px dashed var(--line); border-radius: 9px; color: var(--muted); text-align: center; font-size: .82rem; line-height: 1.5; }
       .muted { color: var(--muted); }
       .hidden { display: none !important; }
-      @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+      @media (max-width: 900px) {
+        .layout { grid-template-columns: 1fr; }
+        .overview { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      }
       @media (max-width: 620px) {
         .shell { padding: 18px 14px 34px; }
         header { align-items: flex-start; }
         .connection { font-size: .7rem; }
         .overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .service-grid { grid-template-columns: 1fr; }
+        .lifecycle { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .form-grid, .result-grid { grid-template-columns: 1fr; }
         .result-card.wide, label.wide { grid-column: auto; }
       }
@@ -118,7 +126,7 @@
         <div class="connection"><span id="health-dot" class="dot"></span><span id="health-label">Checking backend…</span></div>
       </header>
 
-      <p class="intro">Monitor simulated infrastructure, submit an incident to the recovery workflow, and inspect every diagnosis, decision, action, and verification.</p>
+      <p class="intro">Monitor simulated infrastructure, submit an incident to the recovery workflow, and inspect every diagnosis, decision, action, and verification. Recovery actions run only in the in-memory simulator; no production infrastructure is modified. The active count is derived from incident statuses in backend audit records; the API does not provide a live in-progress feed.</p>
 
       <section id="notice" class="notice hidden" role="status" aria-live="polite"></section>
 
@@ -126,6 +134,7 @@
         <article class="metric"><div class="metric-label">Services</div><div id="service-count" class="metric-value">—</div></article>
         <article class="metric"><div class="metric-label">Healthy</div><div id="healthy-count" class="metric-value">—</div></article>
         <article class="metric"><div class="metric-label">Needs attention</div><div id="attention-count" class="metric-value">—</div></article>
+        <article class="metric"><div class="metric-label">Active incidents</div><div id="active-incident-count" class="metric-value">—</div></article>
         <article class="metric"><div class="metric-label">Recorded incidents</div><div id="incident-count" class="metric-value">—</div></article>
       </section>
 
@@ -157,6 +166,8 @@
         <div class="column">
           <section class="panel">
             <div class="panel-heading"><h2>Recovery outcome</h2><span id="selected-incident-label" class="muted"></span></div>
+            <div class="notice">Simulation only · Backend confirmation required for every result.</div>
+            <div id="lifecycle" class="lifecycle" aria-label="Recovery lifecycle"></div>
             <div id="recovery-result" class="empty">Submit an incident or select a recent one to inspect its recovery workflow.</div>
           </section>
           <section class="panel">
@@ -261,7 +272,15 @@
         `).join("");
       }
 
+      function isActiveIncident(record) {
+        return ["detected", "approved", "executed"].includes(
+          String(record.incident?.status || "").toLowerCase(),
+        );
+      }
+
       function renderHistory() {
+        document.querySelector("#active-incident-count").textContent =
+          state.records.filter(isActiveIncident).length;
         document.querySelector("#incident-count").textContent = state.records.length;
         elements.historyState.textContent = state.records.length ? `${state.records.length} total` : "";
         if (!state.records.length) {
@@ -272,11 +291,42 @@
           const id = record.incident?.id || "";
           const service = record.incident?.service_name || "Unknown service";
           const severity = record.incident?.severity || "unknown";
+          const incidentStatus = record.incident?.status || record.pipeline_status || "unknown";
           return `<button type="button" class="history-item ${state.selectedId === id ? "selected" : ""}" data-incident-id="${escapeHtml(id)}">
             <strong>${escapeHtml(service)}</strong> · ${escapeHtml(severity)}
-            <div class="history-meta"><span>${escapeHtml(id)}</span><span>${escapeHtml(record.pipeline_status || "unknown")}</span></div>
+            <div class="history-meta"><span>${escapeHtml(id)}</span><span>${escapeHtml(incidentStatus)}</span></div>
           </button>`;
         }).join("");
+      }
+
+      function auditEventSummary(event) {
+        const details = event.details || {};
+        const diagnosis = details.diagnosis;
+        const action = details.recovery_action;
+        const decision = details.policy_decision;
+        const recovery = details.recovery_result;
+        const verification = details.verification_result;
+        const summaries = {
+          diagnosis_completed: diagnosis?.likely_cause
+            ? `AI diagnosis: ${diagnosis.likely_cause}` : "",
+          diagnosis_fallback: [
+            diagnosis?.likely_cause ? `Fallback diagnosis: ${diagnosis.likely_cause}` : "",
+            details.diagnosis_fallback?.reason ? `Fallback reason: ${details.diagnosis_fallback.reason}` : "",
+          ].filter(Boolean).join(" · "),
+          action_proposed: action
+            ? `Proposed ${action.action_type || "action"} for ${action.target_service || "unknown target"}` : "",
+          policy_evaluated: decision
+            ? `Policy ${decision.verdict || "decision"}: ${decision.reason || ""}` : "",
+          recovery_executed: recovery
+            ? `Simulated execution ${recovery.success ? "succeeded" : "failed"}: ${recovery.message || ""}` : "",
+          recovery_skipped: details.policy_verdict
+            ? `Not executed; policy verdict: ${details.policy_verdict}` : "Recovery was not executed.",
+          verification_completed: verification
+            ? `Verification ${verification.outcome || "result"}: ${verification.details || ""}` : "",
+          pipeline_completed: details.pipeline_status
+            ? `Final pipeline status: ${details.pipeline_status}` : "",
+        };
+        return summaries[event.event_type] || "";
       }
 
       function renderAudit(events) {
@@ -286,15 +336,55 @@
           return;
         }
         elements.auditHistory.className = "audit-list";
-        elements.auditHistory.innerHTML = events.map((event) => `
+        const chronologicalEvents = [...events].sort((first, second) =>
+          (Date.parse(first.timestamp || "") || 0) - (Date.parse(second.timestamp || "") || 0)
+        );
+        elements.auditHistory.innerHTML = chronologicalEvents.map((event) => `
           <article class="audit-item">
             <div class="audit-rail"><span class="audit-dot"></span></div>
             <div>
               <div class="audit-title">${escapeHtml((event.event_type || "event").replaceAll("_", " "))} ${event.success === false ? badge("Failed", "bad") : ""}</div>
               <div class="audit-description">${escapeHtml(event.explanation || event.component_name || "")}</div>
+              ${auditEventSummary(event) ? `<div class="audit-description">${escapeHtml(auditEventSummary(event))}</div>` : ""}
               <div class="audit-time">${escapeHtml(event.component_name || "System")} · ${escapeHtml(formatDate(event.timestamp))}</div>
             </div>
           </article>
+        `).join("");
+      }
+
+      function renderLifecycle(record, events) {
+        const eventTypes = new Set(events.map((event) => event.event_type));
+        const diagnosisEvent = events.find((event) =>
+          ["diagnosis_completed", "diagnosis_fallback"].includes(event.event_type)
+        );
+        const policy = record.policy_decision;
+        const approved = policy?.verdict === "approve";
+        const stages = [
+          ["Diagnosis", diagnosisEvent
+            ? (diagnosisEvent.event_type === "diagnosis_fallback" ? "Deterministic fallback recorded" : "AI diagnosis recorded")
+            : "No diagnosis event returned"],
+          ["Planning", eventTypes.has("action_proposed") || record.recovery_action
+            ? "Proposal recorded" : "No proposal returned"],
+          ["Policy", policy
+            ? `${policy.verdict}${policy.reason ? ` · ${policy.reason}` : ""}`
+            : "No policy decision returned"],
+          ["Execution", eventTypes.has("recovery_skipped") || (policy && !approved)
+            ? "Not executed — policy did not approve"
+            : record.recovery_result
+              ? `Simulated execution ${record.recovery_result.success ? "succeeded" : "failed"}`
+              : "No execution result returned"],
+          ["Verification", record.verification_result
+            ? `Verification ${record.verification_result.outcome}`
+            : policy && !approved
+              ? "Not run — action was not approved"
+              : "No verification result returned"],
+          ["Final result", record.pipeline_status || "No final status returned"],
+        ];
+        elements.lifecycle.innerHTML = stages.map(([name, value]) => `
+          <div class="lifecycle-step">
+            <div class="lifecycle-name">${escapeHtml(name)}</div>
+            <div class="lifecycle-state">${escapeHtml(value)}</div>
+          </div>
         `).join("");
       }
 
@@ -310,6 +400,9 @@
         const fallbackEvent = events.find((event) => event.event_type === "diagnosis_fallback");
         const diagnosisEvent = events.find((event) => event.event_type === "diagnosis_completed");
         const actionEvent = events.find((event) => event.event_type === "action_proposed");
+        const isFallback = Boolean(
+          fallbackEvent || actionEvent?.details?.diagnosis_fallback,
+        );
         const diagnosis = fallbackEvent?.details?.diagnosis
           || diagnosisEvent?.details?.diagnosis
           || actionEvent?.details?.diagnosis
@@ -323,17 +416,22 @@
 
         let diagnosisHtml;
         if (diagnosis) {
-          const kind = fallbackEvent ? "warn" : "good";
-          const source = fallbackEvent ? "Deterministic fallback" : "AI diagnosis";
+          const kind = isFallback ? "warn" : diagnosisEvent ? "good" : "";
+          const source = isFallback ? "Deterministic fallback"
+            : diagnosisEvent ? "AI diagnosis" : "Diagnosis";
           diagnosisHtml = `<strong>${badge(source, kind)}</strong><p>${escapeHtml(diagnosis.likely_cause || "Cause not provided")}</p>
             <p class="muted">Confidence: ${diagnosis.confidence == null ? "—" : `${(Number(diagnosis.confidence) * 100).toFixed(0)}%`}</p>
             ${diagnosis.evidence?.length ? `<p class="muted">Evidence: ${escapeHtml(diagnosis.evidence.join(" · "))}</p>` : ""}
-            ${diagnosis.rationale ? `<p class="muted">${escapeHtml(diagnosis.rationale)}</p>` : ""}`;
+            ${diagnosis.recommended_action_id ? `<p class="muted">Diagnostic recommendation: ${escapeHtml(diagnosis.recommended_action_id)}</p>` : ""}
+            ${diagnosis.rationale ? `<p class="muted">${escapeHtml(diagnosis.rationale)}</p>` : ""}
+            ${diagnosis.uncertainty_or_notes ? `<p class="muted">${escapeHtml(diagnosis.uncertainty_or_notes)}</p>` : ""}`;
         } else {
-          diagnosisHtml = `<span class="muted">${state.selectedId ? "Diagnosis was not enabled for this incident." : "No diagnosis available."}</span>`;
+          diagnosisHtml = '<span class="muted">No diagnosis result was returned for this incident.</span>';
         }
-        if (fallbackEvent?.details?.diagnosis_fallback?.reason) {
-          diagnosisHtml += `<p class="muted">AI fallback reason: ${escapeHtml(fallbackEvent.details.diagnosis_fallback.reason)}</p>`;
+        const fallbackReason = fallbackEvent?.details?.diagnosis_fallback?.reason
+          || actionEvent?.details?.diagnosis_fallback?.reason;
+        if (fallbackReason) {
+          diagnosisHtml += `<p class="muted">AI fallback reason: ${escapeHtml(fallbackReason)}</p>`;
         }
 
         const policyKind = decision?.verdict === "approve" ? "good" : decision ? "bad" : "";
@@ -341,11 +439,12 @@
           : record.recovery_result ? "bad" : record.pipeline_status === "recovery_denied" ? "warn" : "";
         const verificationKind = verification?.outcome === "pass" ? "good" : verification ? "bad" : "";
 
+        renderLifecycle(record, events);
         elements.recoveryResult.className = "result-grid";
         elements.recoveryResult.innerHTML = `
           <article class="result-card">
             <h3>Incident</h3>
-            <div class="result-value"><strong>${escapeHtml(record.incident?.service_name || "Incident")}</strong><br>${escapeHtml(record.incident?.title || record.incident?.description || "")}<br><span class="muted">${escapeHtml(record.incident?.severity || "")} · ${escapeHtml(state.selectedId || "")}</span></div>
+            <div class="result-value"><strong>${escapeHtml(record.incident?.service_name || "Incident")}</strong><br>${escapeHtml(record.incident?.title || record.incident?.description || "")}<br><span class="muted">Status: ${escapeHtml(record.incident?.status || "unknown")} · ${escapeHtml(record.incident?.severity || "")} · ${escapeHtml(state.selectedId || "")}</span></div>
           </article>
           <article class="result-card">
             <h3>Diagnosis</h3>
@@ -365,11 +464,13 @@
           </article>
           <article class="result-card">
             <h3>Execution</h3>
-            <div class="result-value">${record.recovery_result
-              ? `${badge(record.recovery_result.success ? "Confirmed" : "Failed", recoveryKind)}<p>${escapeHtml(record.recovery_result.message || "")}</p><p class="muted">${escapeHtml(record.recovery_result.action_type || "")} · ${escapeHtml(formatDate(record.recovery_result.completed_at))}</p>`
-              : record.pipeline_status === "recovery_denied"
-                ? `${badge("Not executed", "warn")}<p class="muted">Policy rejected the action. No recovery was executed.</p>`
-                : '<span class="muted">No execution result returned.</span>'}</div>
+            <div class="result-value">${decision && decision.verdict !== "approve"
+              ? `${badge("Not executed", "warn")}<p>Policy did not approve the action. No recovery was executed.</p><p class="muted">${escapeHtml(decision.reason || "")}</p>`
+              : !decision
+                ? '<span class="muted">Execution cannot be confirmed because no policy decision was returned.</span>'
+                : record.recovery_result
+                  ? `${badge(`Simulated · ${record.recovery_result.success ? "Confirmed" : "Failed"}`, recoveryKind)}<p>${escapeHtml(record.recovery_result.message || "")}</p><p class="muted">${escapeHtml(record.recovery_result.action_type || "")} · ${escapeHtml(formatDate(record.recovery_result.completed_at))}</p>`
+                  : '<span class="muted">No execution result returned.</span>'}</div>
           </article>
           <article class="result-card">
             <h3>Independent verification</h3>
@@ -440,8 +541,12 @@
         state.busy = true;
         elements.submit.disabled = true;
         elements.submit.textContent = "Submitting incident…";
+        document.querySelector("#selected-incident-label").textContent = "";
+        elements.lifecycle.innerHTML = "";
         elements.recoveryResult.className = "empty";
         elements.recoveryResult.textContent = "Incident submitted. Waiting for the backend recovery workflow to confirm diagnosis, policy, execution, and verification…";
+        elements.auditHistory.className = "empty";
+        elements.auditHistory.textContent = "Waiting for the backend to return audit events.";
 
         const formData = new FormData(elements.form);
         const payload = {
@@ -467,8 +572,11 @@
           );
           await refreshServicesAndHistory();
         } catch (error) {
+          elements.lifecycle.innerHTML = "";
           elements.recoveryResult.className = "empty";
           elements.recoveryResult.textContent = "The backend did not confirm a recovery result.";
+          elements.auditHistory.className = "empty";
+          elements.auditHistory.textContent = "No audit events were returned for this submission.";
           showNotice(error.message || "Unable to submit incident.", "error");
         } finally {
           state.busy = false;
