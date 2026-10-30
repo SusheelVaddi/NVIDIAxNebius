@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
+from app.diagnosis import NemotronClient
 from app.audit import AuditLogger
 from app.infrastructure import InfrastructureSimulator
 from app.models import (
@@ -251,8 +252,8 @@ def test_ai_recommendation_rejected_unsafe_flag(tmp_path):
 def test_nebius_path_uses_env_base_url_and_fallback_on_api_error(sample_incident, sample_state):
     """The Nebius planner honors env config and falls back when the API fails."""
     env = {
-        "NEBIUS_TOKEN_FACTORY_API_KEY": "env-token",
-        "NEBIUS_TOKEN_FACTORY_BASE_URL": "https://custom.nebius.example/v1",
+        "NEBIUS_API_KEY": "env-token",
+        "NEBIUS_API_BASE": "https://custom.nebius.example/v1",
     }
     with patch.dict("os.environ", env, clear=False):
         planner = NebiusPlanner()
@@ -266,6 +267,52 @@ def test_nebius_path_uses_env_base_url_and_fallback_on_api_error(sample_incident
             action = planner.plan(sample_incident, sample_state)
             assert action.target_service == sample_incident.service_name
             assert action.safe_for_simulation is True
+
+
+def test_nebius_planner_sends_bearer_credentials(sample_incident, sample_state):
+    mock_res = MagicMock()
+    mock_res.status_code = 200
+    mock_res.json.return_value = {
+        "choices": [{
+            "message": {
+                "content": json.dumps({
+                    "action_type": "restart_service",
+                    "target_service": sample_incident.service_name,
+                    "parameters": {},
+                    "reasoning": "Validated recovery proposal.",
+                    "confidence": 0.9,
+                })
+            }
+        }]
+    }
+    planner = NebiusPlanner(api_key="planner-test-secret")
+
+    with patch("httpx.Client.post", return_value=mock_res) as post:
+        planner.plan(sample_incident, sample_state)
+
+    assert post.call_args.kwargs["headers"]["Authorization"] == "Bearer planner-test-secret"
+
+
+def test_planner_and_diagnosis_share_nebius_configuration(
+    monkeypatch, sample_incident, sample_state
+):
+    monkeypatch.setenv("NEBIUS_API_KEY", "shared-key")
+    monkeypatch.setenv("NEBIUS_API_BASE", "https://shared.example/v1")
+    monkeypatch.setenv("NEBIUS_MODEL_ID", "shared-model")
+    monkeypatch.setenv("NEBIUS_TIMEOUT_SECONDS", "17")
+    monkeypatch.setenv("NEBIUS_MOCK_MODE", "true")
+
+    planner = NebiusPlanner()
+    diagnosis_client = NemotronClient()
+
+    assert (planner.api_key, planner.base_url, planner.model, planner.timeout) == (
+        diagnosis_client.api_key,
+        diagnosis_client.base_url,
+        diagnosis_client.model_id,
+        diagnosis_client.timeout,
+    )
+    action = planner.plan(sample_incident, sample_state)
+    assert action.target_service == sample_incident.service_name
 
 
 def test_malformed_ai_output(sample_incident, sample_state):

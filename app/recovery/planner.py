@@ -12,12 +12,20 @@ from __future__ import annotations
 import abc
 import json
 import logging
-import os
 from typing import Any, Dict, Optional
 
 import httpx
 from pydantic import BaseModel, Field
 
+from app.config import (
+    DEFAULT_NEBIUS_API_BASE,
+    DEFAULT_NEBIUS_MODEL_ID,
+    get_nebius_api_base,
+    get_nebius_api_key,
+    get_nebius_model_id,
+    get_nebius_timeout_seconds,
+    is_nebius_mock_mode,
+)
 from app.diagnosis.models import DiagnosisResult
 from app.models import (
     Incident,
@@ -29,10 +37,8 @@ from app.models import (
 
 logger = logging.getLogger(__name__)
 
-# Default NVIDIA Nemotron model on Nebius Token Factory / Studio
-DEFAULT_NEBIUS_MODEL = "nvidia/llama-3.1-nemotron-70b-instruct"
-DEFAULT_NEBIUS_BASE_URL = "https://api.studio.nebius.ai/v1"
-DEFAULT_NEBIUS_BASE_URL_ENV = "https://api.studio.nebius.ai/v1"
+DEFAULT_NEBIUS_MODEL = DEFAULT_NEBIUS_MODEL_ID
+DEFAULT_NEBIUS_BASE_URL = DEFAULT_NEBIUS_API_BASE
 
 
 class AIPlanProposal(BaseModel):
@@ -162,9 +168,11 @@ class NebiusPlanner(RecoveryPlanner):
     """Production planner calling OpenAI-compatible Nebius Token Factory API.
 
     Environment variables:
-    - NEBIUS_TOKEN_FACTORY_API_KEY
-    - NEBIUS_TOKEN_FACTORY_BASE_URL
-    - NEBIUS_MODEL (defaults to NVIDIA Nemotron: nvidia/llama-3.1-nemotron-70b-instruct)
+    - NEBIUS_API_KEY (aliases: NEMOTRON_API_KEY, NEBIUS_TOKEN_FACTORY_API_KEY)
+    - NEBIUS_API_BASE (aliases: NEBIUS_BASE_URL, NEBIUS_TOKEN_FACTORY_BASE_URL)
+    - NEBIUS_MODEL_ID (aliases: NEBIUS_MODEL, NEMOTRON_MODEL)
+    - NEBIUS_TIMEOUT_SECONDS (alias: NEMOTRON_TIMEOUT_SECONDS)
+    - NEBIUS_MOCK_MODE (alias: NEMOTRON_MOCK_MODE)
 
     If credentials are missing or the API call / validation fails, safely falls
     back to DeterministicMockPlanner.
@@ -175,22 +183,14 @@ class NebiusPlanner(RecoveryPlanner):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         model: Optional[str] = None,
-        timeout: float = 10.0,
+        timeout: Optional[float] = None,
         fallback_planner: Optional[RecoveryPlanner] = None,
     ) -> None:
-        self.api_key = api_key if api_key is not None else os.getenv("NEBIUS_TOKEN_FACTORY_API_KEY", "")
-        env_base_url = os.getenv("NEBIUS_TOKEN_FACTORY_BASE_URL")
-        self.base_url = (
-            base_url
-            if base_url is not None
-            else (env_base_url or DEFAULT_NEBIUS_BASE_URL_ENV)
-        ).rstrip("/")
-        self.model = (
-            model
-            if model is not None
-            else os.getenv("NEBIUS_MODEL", DEFAULT_NEBIUS_MODEL)
-        )
-        self.timeout = timeout
+        self.api_key = api_key if api_key is not None else get_nebius_api_key() or ""
+        self.base_url = (base_url or get_nebius_api_base()).rstrip("/")
+        self.model = model or get_nebius_model_id()
+        self.timeout = timeout if timeout is not None else get_nebius_timeout_seconds()
+        self.mock_mode = is_nebius_mock_mode()
         self.fallback_planner = (
             fallback_planner if fallback_planner is not None else DeterministicMockPlanner()
         )
@@ -220,9 +220,17 @@ class NebiusPlanner(RecoveryPlanner):
 
         Falls back to DeterministicMockPlanner if credentials are missing or any error occurs.
         """
+        if self.mock_mode:
+            logger.info("NEBIUS_MOCK_MODE is enabled. Using DeterministicMockPlanner fallback.")
+            if diagnosis is not None:
+                return self.fallback_planner.plan_with_diagnosis(
+                    incident, state, diagnosis
+                )
+            return self.fallback_planner.plan(incident, state)
+
         # Fall back if no API key is configured
         if not self.api_key or not self.api_key.strip():
-            logger.info("NEBIUS_TOKEN_FACTORY_API_KEY not set. Using DeterministicMockPlanner fallback.")
+            logger.info("NEBIUS_API_KEY not set. Using DeterministicMockPlanner fallback.")
             if diagnosis is not None:
                 return self.fallback_planner.plan_with_diagnosis(
                     incident, state, diagnosis

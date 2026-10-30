@@ -57,6 +57,21 @@ def test_health_check():
     assert res_api.json() == {"status": "ok"}
 
 
+def test_reset_requires_configured_admin_token(monkeypatch):
+    monkeypatch.setenv("ADMIN_RESET_TOKEN", "test-admin-token")
+
+    assert client.post("/reset").status_code == 403
+    assert client.post(
+        "/reset", headers={"X-Admin-Reset-Token": "wrong-token"}
+    ).status_code == 403
+
+    response = client.post(
+        "/reset", headers={"X-Admin-Reset-Token": "test-admin-token"}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "reset"}
+
+
 def test_dashboard_is_served_from_application():
     response = client.get("/")
     assert response.status_code == 200

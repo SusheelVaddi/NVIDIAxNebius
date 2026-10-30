@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from typing import Any, Dict, Optional
 
@@ -63,6 +64,14 @@ DIM = "\033[2m"
 RESET = "\033[0m"
 
 
+def reset_simulator(client: TestClient) -> None:
+    """Reset demo state using the configured admin token, when required."""
+    token = os.getenv("ADMIN_RESET_TOKEN", "")
+    headers = {"X-Admin-Reset-Token": token} if token else {}
+    response = client.post("/reset", headers=headers)
+    response.raise_for_status()
+
+
 def header(title: str) -> None:
     line = "=" * 80
     print(f"\n{BOLD}{CYAN}{line}{RESET}")
@@ -84,7 +93,7 @@ def run_scenario_1_primary_recovery(client: TestClient) -> Dict[str, Any]:
 
     # 1. Reset state & register payment service in an unhealthy state
     subheader("Step 1", "Inject Incident: Payment Service is Unhealthy")
-    client.post("/reset")
+    reset_simulator(client)
     payment_initial_state = SystemState(
         service_name="payment-service",
         status=ServiceStatus.DEGRADED,
@@ -179,7 +188,7 @@ def run_scenario_2_unsafe_action_rejected(client: TestClient) -> Dict[str, Any]:
     """Scenario 2: Unsafe Action Rejected by Policy Gate."""
     header("Scenario 2: Policy Gate Rejects Unsafe Action")
 
-    client.post("/reset")
+    reset_simulator(client)
     infra.register_service("payment-service", status=ServiceStatus.DEGRADED, cpu_percent=95.0, memory_percent=99.0, error_rate=0.4)
 
     # Proposed action is explicitly marked unsafe for simulation
@@ -228,7 +237,7 @@ def run_scenario_3_unknown_service_rejected(client: TestClient) -> Dict[str, Any
     """Scenario 3: Unknown Service Rejected by Policy Gate."""
     header("Scenario 3: Policy Gate Rejects Unknown Service")
 
-    client.post("/reset")
+    reset_simulator(client)
     unknown_action = RecoveryAction(
         incident_id="inc-unknown-003",
         action_type=RecoveryActionType.RESTART_SERVICE,
@@ -270,7 +279,7 @@ def run_scenario_4_executor_failure(client: TestClient) -> Dict[str, Any]:
     """Scenario 4: Executor Failure (Scale exceeds maximum limit)."""
     header("Scenario 4: Simulated Executor Failure")
 
-    client.post("/reset")
+    reset_simulator(client)
     infra.register_service("payment-service", status=ServiceStatus.DEGRADED, cpu_percent=85.0, memory_percent=70.0, error_rate=0.2, instances=2)
 
     # Approved by policy gate (scale_service with target_instances), but exceeds executor max scale limit (10)
@@ -321,7 +330,7 @@ def run_scenario_5_verification_failure(client: TestClient) -> Dict[str, Any]:
     """Scenario 5: Independent Verification Failure."""
     header("Scenario 5: Post-Recovery Independent Verification Failure")
 
-    client.post("/reset")
+    reset_simulator(client)
     infra.register_service("payment-service", status=ServiceStatus.DEGRADED, cpu_percent=60.0, memory_percent=55.0, error_rate=0.4)
 
     # Custom verifier simulating post-recovery latent failure (health check probe returns 500)
