@@ -7,15 +7,17 @@ Delegates all business logic to the orchestrator layer.
 from __future__ import annotations
 
 import os
-from typing import List
+import secrets
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from app.audit import audit_logger
 from app.infrastructure import infra
 from app.models import (
     AuditEvent,
+    AuditIntegrityReport,
     AuditEventType,
     AuditRecord,
     Incident,
@@ -247,9 +249,62 @@ def list_audit_records():
     )
 
 
+def verify_admin_auth(
+    x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+) -> None:
+    """Verify administrator authorization for sensitive administrative endpoints.
+
+    If ADMIN_RESET_TOKEN is set in the environment, requests must supply a matching
+    token via the 'X-Admin-Token' header or 'Authorization: Bearer <token>'.
+    """
+    expected_token = os.getenv("ADMIN_RESET_TOKEN", "").strip()
+    if not expected_token:
+        # In open development/testing mode without ADMIN_RESET_TOKEN configured, permit access
+        return
+
+    provided_token = None
+    if x_admin_token:
+        provided_token = x_admin_token.strip()
+    elif authorization:
+        parts = authorization.strip().split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            provided_token = parts[1]
+        elif len(parts) == 1:
+            provided_token = parts[0]
+
+    if not provided_token or not secrets.compare_digest(provided_token, expected_token):
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized: invalid or missing admin token for reset.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+class ResetRequest(BaseModel):
+    """Optional request body for POST /reset."""
+    clear_audit: bool = False
+
+
 @router.post("/reset")
-def reset_infrastructure():
-    """Reset all services to healthy defaults and clear the audit log."""
+def reset_infrastructure(
+    body: Optional[ResetRequest] = None,
+    clear_audit: bool = False,
+    _: None = Depends(verify_admin_auth),
+):
+    """Reset all services to healthy defaults.
+    
+    Audit history is preserved by default to maintain traceability.
+    Audit history is only cleared if explicitly requested via clear_audit=True.
+    """
     infra.reset()
-    audit_logger.clear()
-    return {"status": "reset"}
+    should_clear = clear_audit or (body.clear_audit if body is not None else False)
+    if should_clear:
+        audit_logger.clear()
+    return {"status": "reset", "audit_cleared": should_clear}
+
+
+@router.get("/audit/verify", response_model=AuditIntegrityReport)
+def verify_audit_trail():
+    """Verify cryptographic hash chain integrity and chronological order of all audit events."""
+    return audit_logger.verify_integrity()

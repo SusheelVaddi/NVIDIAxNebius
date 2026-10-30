@@ -14,7 +14,7 @@ import pytest
 
 from app.api.routes import get_orchestrator
 from app.audit import AuditLogger, audit_logger
-from app.infrastructure import InfrastructureSimulator
+from app.infrastructure import InfrastructureSimulator, infra
 from app.main import app
 from app.models import (
     AuditEvent,
@@ -412,3 +412,110 @@ def test_audit_endpoint_reconstructs_legacy_event_only_history(monkeypatch):
     assert len(records) == 1
     assert records[0]["incident"]["id"] == response_record["incident"]["id"]
     assert records[0]["pipeline_status"] == response_record["pipeline_status"]
+
+
+def test_openapi_operation_ids_are_unique():
+    client = TestClient(app)
+    response = client.get("/openapi.json")
+    assert response.status_code == 200
+    schema = response.json()
+    operation_ids = []
+    for path, methods in schema.get("paths", {}).items():
+        for method, operation in methods.items():
+            if isinstance(operation, dict) and "operationId" in operation:
+                operation_ids.append(operation["operationId"])
+    assert len(operation_ids) == len(set(operation_ids)), f"Duplicate operation IDs found: {operation_ids}"
+    assert len(operation_ids) > 0
+
+
+def test_root_and_api_prefix_route_parity():
+    client = TestClient(app)
+    assert client.get("/health").status_code == 200
+    assert client.get("/api/health").status_code == 200
+    assert client.get("/services").status_code == 200
+    assert client.get("/api/services").status_code == 200
+    assert client.get("/audit").status_code == 200
+    assert client.get("/api/audit").status_code == 200
+
+
+# ==============================================================================
+# Reset Security & Audit Integrity Endpoint Tests
+# ==============================================================================
+
+def test_reset_unauthorized_when_token_configured(monkeypatch):
+    """Verify that unauthorized requests cannot reset the system when an admin token is set."""
+    admin_token = "secure-hackathon-admin-key-999"
+    monkeypatch.setenv("ADMIN_RESET_TOKEN", admin_token)
+
+    # Put a service into DEGRADED state
+    infra.register_service("web-frontend", status=ServiceStatus.DEGRADED, error_rate=0.8)
+    assert infra.get_service("web-frontend").status == ServiceStatus.DEGRADED
+
+    # 1. Unauthenticated request without headers
+    res_no_auth = client.post("/reset")
+    assert res_no_auth.status_code == 401
+    assert "Unauthorized" in res_no_auth.json()["detail"]
+    assert infra.get_service("web-frontend").status == ServiceStatus.DEGRADED
+
+    # 2. Invalid X-Admin-Token header
+    res_wrong_token = client.post("/reset", headers={"X-Admin-Token": "invalid_wrong_token"})
+    assert res_wrong_token.status_code == 401
+    assert "Unauthorized" in res_wrong_token.json()["detail"]
+    assert infra.get_service("web-frontend").status == ServiceStatus.DEGRADED
+
+    # 3. Valid X-Admin-Token header
+    res_valid_header = client.post("/reset", headers={"X-Admin-Token": admin_token})
+    assert res_valid_header.status_code == 200
+    assert res_valid_header.json()["status"] == "reset"
+    assert infra.get_service("web-frontend").status == ServiceStatus.HEALTHY
+
+    # 4. Valid Authorization Bearer header
+    infra.register_service("web-frontend", status=ServiceStatus.DEGRADED)
+    res_bearer = client.post("/reset", headers={"Authorization": f"Bearer {admin_token}"})
+    assert res_bearer.status_code == 200
+    assert infra.get_service("web-frontend").status == ServiceStatus.HEALTHY
+
+
+def test_reset_preserves_audit_log_by_default():
+    """Verify that POST /reset preserves audit history by default and only clears it when explicitly requested."""
+    # Record an event into audit logger
+    audit_logger.record_event(
+        incident_id="inc-preservation-check",
+        component_name="Orchestrator",
+        event_type="incident_received",
+        success=True,
+        explanation="Audit event must be preserved across service resets.",
+    )
+    events_before = audit_logger.get_events_for_incident("inc-preservation-check")
+    assert len(events_before) == 1
+
+    # Call reset without clear_audit flag
+    res = client.post("/reset")
+    assert res.status_code == 200
+    assert res.json()["audit_cleared"] is False
+
+    # Verify audit history is preserved
+    events_after = audit_logger.get_events_for_incident("inc-preservation-check")
+    assert len(events_after) == 1
+
+    # Call reset with explicit clear_audit=True in JSON body
+    res_clear = client.post("/reset", json={"clear_audit": True})
+    assert res_clear.status_code == 200
+    assert res_clear.json()["audit_cleared"] is True
+
+    # Verify audit history is now cleared
+    assert len(audit_logger.get_events_for_incident("inc-preservation-check")) == 0
+
+
+def test_audit_verify_endpoint_cryptographic_integrity():
+    """Verify that GET /audit/verify and /api/audit/verify validate the audit hash chain."""
+    res_root = client.get("/audit/verify")
+    assert res_root.status_code == 200
+    report_root = res_root.json()
+    assert "is_valid" in report_root
+    assert "verified_events" in report_root
+    assert report_root["is_valid"] is True
+
+    res_api = client.get("/api/audit/verify")
+    assert res_api.status_code == 200
+    assert res_api.json()["is_valid"] is True

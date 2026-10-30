@@ -185,6 +185,8 @@ def test_missing_parameters(orchestrator, infra, audit):
 
 def test_executor_failure_exceeding_scale_limit(orchestrator, infra, audit):
     """When the executor fails (e.g. scaling limit exceeded), failure is recorded and verification skipped."""
+    # Configure policy gate with higher ceiling to specifically test executor defense-in-depth failure
+    orchestrator.policy_gate.max_instances = 100
     incident = infra.inject_incident("api-gateway", IncidentSeverity.HIGH)
     # Target instances exceeds executor limit of 10
     action = RecoveryAction(

@@ -8,7 +8,7 @@ Everything is deterministic and thread-safe for single-process demo / testing.
 from __future__ import annotations
 
 import threading
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from app.models import (
     Incident,

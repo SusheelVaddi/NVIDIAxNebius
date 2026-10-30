@@ -22,13 +22,17 @@ from demo import (
 )
 
 
+import os
+
 @pytest.fixture
 def client():
     """Isolated test client with reset state."""
     c = TestClient(app)
-    c.post("/reset")
+    token = os.getenv("ADMIN_RESET_TOKEN", "").strip()
+    headers = {"X-Admin-Token": token} if token else {}
+    c.post("/reset", headers=headers)
     yield c
-    c.post("/reset")
+    c.post("/reset", headers=headers)
 
 
 def test_demo_scenario_1_primary_recovery(client):
@@ -60,12 +64,13 @@ def test_demo_scenario_3_unknown_service(client):
 
 
 def test_demo_scenario_4_executor_failure(client):
-    """Scenario 4: Scale exceeds maximum instances, executor returns failure."""
+    """Scenario 4: Scale exceeds maximum instances, rejected by deterministic policy gate."""
     result = run_scenario_4_executor_failure(client)
-    assert result["final_status"] == "recovery_failed"
-    assert result["policy_decision"]["verdict"] == "approve"
-    assert result["recovery_result"]["success"] is False
+    assert result["final_status"] == "recovery_denied"
+    assert result["policy_decision"]["verdict"] == "deny"
+    assert result["recovery_result"] is None
     assert result["verification_result"] is None
+    assert "limit" in result["policy_decision"]["reason"].lower() or "exceeds" in result["policy_decision"]["reason"].lower()
 
 
 def test_demo_scenario_5_verification_failure(client):
@@ -84,5 +89,5 @@ def test_demo_all_demonstrations(client):
     assert all_results["scenario_1_payment_service_success"]["final_status"] == "success"
     assert all_results["scenario_2_unsafe_action_rejected"]["final_status"] == "recovery_denied"
     assert all_results["scenario_3_unknown_service_rejected"]["final_status"] == "recovery_denied"
-    assert all_results["scenario_4_executor_failure"]["final_status"] == "recovery_failed"
+    assert all_results["scenario_4_executor_failure"]["final_status"] == "recovery_denied"
     assert all_results["scenario_5_verification_failure"]["final_status"] == "verification_failed"
