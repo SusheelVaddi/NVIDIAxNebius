@@ -35,5 +35,8 @@ def dashboard() -> FileResponse:
 
 # -- Mount API routes (supports both /... and /api/...) ----------------------
 
-app.include_router(router)
+# Canonical API routes documented in OpenAPI schema
 app.include_router(router, prefix="/api")
+
+# Root alias routes for backwards-compatibility (excluded from OpenAPI schema to prevent duplicate operation IDs)
+app.include_router(router, include_in_schema=False)

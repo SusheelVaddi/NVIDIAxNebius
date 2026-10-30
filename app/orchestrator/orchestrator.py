@@ -55,6 +55,23 @@ from app.verification import IndependentVerifier
 from src.schemas import IncidentPayload as MonitoringIncidentPayload
 
 
+def _safe_diagnosis_fallback_reason(err: Exception) -> str:
+    """Classify a diagnosis/client error into a safe category without leaking secrets or payloads."""
+    if isinstance(err, DiagnosisError):
+        return "schema_validation_failed"
+    if isinstance(err, NemotronTimeoutError):
+        return "timeout"
+    if isinstance(err, NemotronConnectionError):
+        return "connection_failure"
+    if isinstance(err, NemotronAuthError):
+        return "authentication_failure"
+    if isinstance(err, NemotronAPIError):
+        return "api_error"
+    if isinstance(err, NemotronResponseError):
+        return "response_error"
+    return "client_error"
+
+
 class Orchestrator:
     """Coordinates incident reception, policy gating, recovery, verification, and audit trail."""
 
@@ -168,20 +185,7 @@ class Orchestrator:
                 try:
                     diagnosis = self.diagnoser.diagnose(incident, state_before)
                 except (DiagnosisError, NemotronClientError) as exc:
-                    if isinstance(exc, DiagnosisError):
-                        fallback_reason = "schema_validation_failed"
-                    elif isinstance(exc, NemotronTimeoutError):
-                        fallback_reason = "timeout"
-                    elif isinstance(exc, NemotronConnectionError):
-                        fallback_reason = "connection_failure"
-                    elif isinstance(exc, NemotronAuthError):
-                        fallback_reason = "authentication_failure"
-                    elif isinstance(exc, NemotronAPIError):
-                        fallback_reason = "api_error"
-                    elif isinstance(exc, NemotronResponseError):
-                        fallback_reason = "response_error"
-                    else:
-                        fallback_reason = "client_error"
+                    fallback_reason = _safe_diagnosis_fallback_reason(exc)
                     diagnosis_fallback = {
                         "status": "failed",
                         "reason": fallback_reason,
@@ -247,15 +251,24 @@ class Orchestrator:
             action_details["diagnosis"] = diagnosis.model_dump(mode="json")
         if diagnosis_fallback is not None:
             action_details["diagnosis_fallback"] = diagnosis_fallback
+        action_summary = (
+            f"RecoveryPlanner ({planner_name}) recommended action '{action.action_type.value}' "
+            f"targeting service '{action.target_service}'"
+        )
+        param_keys = [k for k in action.parameters.keys() if k != "diagnosis_likely_cause"]
+        if param_keys:
+            filtered_params = {k: action.parameters[k] for k in param_keys}
+            action_summary += f" with parameters {filtered_params}"
+        action_summary += "."
+        if len(action_summary) > 1024:
+            action_summary = action_summary[:1021] + "..."
+
         self.audit_logger.record_event(
             incident_id=incident.id,
             component_name="RecoveryPlanner",
             event_type=AuditEventType.ACTION_PROPOSED,
             success=True,
-            explanation=(
-                f"RecoveryPlanner ({planner_name}) recommended action '{action.action_type.value}' "
-                f"targeting service '{action.target_service}' with parameters {action.parameters}."
-            ),
+            explanation=action_summary,
             details=action_details,
         )
 

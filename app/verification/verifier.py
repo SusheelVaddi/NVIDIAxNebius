@@ -21,8 +21,13 @@ from app.models import (
 class IndependentVerifier:
     """Independently verifies service health post-recovery by querying infrastructure state."""
 
-    def __init__(self, max_error_rate: float = 0.10) -> None:
+    def __init__(
+        self,
+        max_error_rate: float = 0.10,
+        max_queue_backlog: int = 100,
+    ) -> None:
         self.max_error_rate = max_error_rate
+        self.max_queue_backlog = max_queue_backlog
 
     def verify(
         self,
@@ -61,8 +66,25 @@ class IndependentVerifier:
             checks_performed.append(f"error_rate_acceptable:FAIL({svc.error_rate:.2f})")
             failures.append(f"error rate {svc.error_rate:.2f} exceeds threshold {self.max_error_rate:.2f}")
 
-        # Check 3: Action-specific verification
+        # Check 3: Queue backlog within acceptable threshold
+        if svc.queue_size <= self.max_queue_backlog:
+            checks_performed.append(f"queue_backlog_acceptable:PASS({svc.queue_size})")
+        else:
+            checks_performed.append(f"queue_backlog_acceptable:FAIL({svc.queue_size})")
+            failures.append(
+                f"queue backlog {svc.queue_size} exceeds threshold {self.max_queue_backlog}"
+            )
+
+        # Check 4: Action-specific verification
         if action:
+            # Check target service match
+            if action.target_service != service_name:
+                checks_performed.append(f"target_service_match:FAIL({action.target_service}!={service_name})")
+                failures.append(
+                    f"target service mismatch: recovery action targets '{action.target_service}' while verifying '{service_name}'"
+                )
+            else:
+                checks_performed.append(f"target_service_match:PASS({service_name})")
             if action.action_type == RecoveryActionType.CLEAR_QUEUE:
                 if svc.queue_size == 0:
                     checks_performed.append("queue_cleared:PASS")

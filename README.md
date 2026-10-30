@@ -38,6 +38,23 @@ Telemetry ──> src/monitoring (detection) ──> Incident
 ## Requirements and setup
 
 Python 3.11 or newer is required. Install with pip or uv:
+7. **FastAPI Endpoints & Dashboard (`app.api.routes`, `frontend/index.html`)**:
+   - Implemented `POST /incidents/recover`, `POST /incidents`, `GET /services`, `GET /audit`, `GET /incidents/{id}/audit`, `GET /audit/verify`, `POST /reset`, and `GET /health`.
+   - Bundled the single-page incident recovery web dashboard served at `GET /` and `GET /dashboard`.
+
+8. **End-to-End Demonstrations & Tests (`demo.py`, `tests/`)**:
+   - Authored the comprehensive multi-scenario demonstration suite (`demo.py`) and full automated test suite (319 passing tests covering diagnosis, policy safety, verifier, audit hash chain, API, and frontend integration).
+
+---
+
+## Setup Instructions
+
+### Prerequisites
+
+- Python 3.11+
+- pip
+
+### 1. Clone & Install
 
 ```bash
 git clone https://github.com/SusheelVaddi/NVIDIAxNebius.git
@@ -65,6 +82,7 @@ uvicorn app.main:app --reload
 ```
 
 The dashboard is served at <http://127.0.0.1:8000/>. API documentation is at <http://127.0.0.1:8000/docs>. All service state and recovery execution are simulated in memory.
+All 319 unit and integration tests will run and pass in ~4 seconds.
 
 To explicitly select mock mode:
 
@@ -73,6 +91,21 @@ NEBIUS_MOCK_MODE=true python demo.py
 ```
 
 ## Run with Nebius
+Runs all 5 scenarios with colored console output, request/response JSON previews, and audit trail inspection.
+
+---
+
+## Environment Variables
+
+| Variable | Default Value | Description |
+|---|---|---|
+| `NEBIUS_TOKEN_FACTORY_API_KEY` | *(None / Empty)* | API Key for authenticating with the Nebius Token Factory / Nebius Studio API. |
+| `NEBIUS_TOKEN_FACTORY_BASE_URL` | `https://api.studio.nebius.ai/v1` | Base URL for OpenAI-compatible Nebius chat completions. |
+| `NEBIUS_MODEL` | `nvidia/llama-3.1-nemotron-70b-instruct` | NVIDIA Nemotron model hosted on Nebius Token Factory. |
+| `ENABLE_AI_DIAGNOSIS` | `false` | Enables the Nemotron diagnosis stage before recovery planning. |
+| `NEBIUS_API_KEY` | *(None / Empty)* | Credential used by the Nemotron diagnosis client (`NEMOTRON_API_KEY` is also supported). |
+| `NEBIUS_MODEL_ID` | `nvidia/nemotron-3-super-120b-a12b` | Diagnosis model (`NEMOTRON_MODEL` is also supported). |
+| `ADMIN_RESET_TOKEN` | *(None / Empty)* | Optional administrative token protecting `POST /reset`. If set, resets require `X-Admin-Token` or `Authorization: Bearer`. |
 
 Set a Nebius API key, then enable AI diagnosis if desired. The planner and diagnosis client read the same API key, base URL, model, timeout, and mock-mode configuration.
 

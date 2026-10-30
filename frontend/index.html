@@ -17,7 +17,9 @@
         --green: #76b900;
         --green-soft: #1d2b11;
         --amber: #e8ad4c;
+        --amber-soft: #2b2211;
         --red: #f17676;
+        --red-soft: #2b1111;
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
 
@@ -26,34 +28,37 @@
       button, input, select, textarea { font: inherit; }
       button { cursor: pointer; }
       .shell { max-width: 1440px; margin: auto; padding: 28px clamp(16px, 4vw, 56px) 48px; }
-      header { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 30px; }
+      header { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 24px; flex-wrap: wrap; }
       .brand { display: flex; align-items: center; gap: 14px; }
       .brand-mark { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: var(--green); color: #101311; font-weight: 900; }
       .eyebrow { color: var(--green); font-size: .73rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
       h1 { margin: 3px 0 0; font-size: clamp(1.2rem, 3vw, 1.65rem); letter-spacing: -.035em; }
       h2 { margin: 0; font-size: 1.1rem; letter-spacing: -.02em; }
       h3 { margin: 0 0 12px; font-size: .95rem; }
-      .connection { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .83rem; }
+      .header-status { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+      .connection { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .83rem; background: var(--surface); padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); }
       .dot { width: 8px; height: 8px; border-radius: 99px; background: var(--muted); }
       .dot.online { background: var(--green); box-shadow: 0 0 12px #76b90088; }
-      .dot.offline { background: var(--red); }
-      .intro { margin-bottom: 22px; color: var(--muted); line-height: 1.55; }
-      .overview { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+      .dot.offline { background: var(--red); box-shadow: 0 0 12px #f1767688; }
+      .simulation-banner { margin-bottom: 22px; padding: 12px 16px; background: var(--surface-raised); border-left: 4px solid var(--amber); border-radius: 0 8px 8px 0; color: var(--muted); font-size: .85rem; line-height: 1.5; }
+      .simulation-banner strong { color: var(--text); }
+      .overview { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
       .metric, .panel, .service-card { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
       .metric { padding: 16px 18px; }
-      .metric-label { color: var(--muted); font-size: .78rem; }
+      .metric-label { color: var(--muted); font-size: .78rem; font-weight: 600; }
       .metric-value { margin-top: 8px; font-size: 1.55rem; font-weight: 750; letter-spacing: -.04em; }
-      .layout { display: grid; grid-template-columns: minmax(280px, .8fr) minmax(0, 1.6fr); gap: 16px; align-items: start; }
+      .layout { display: grid; grid-template-columns: minmax(320px, .9fr) minmax(0, 1.6fr); gap: 16px; align-items: start; }
       .column { display: grid; gap: 16px; min-width: 0; }
       .panel { padding: clamp(16px, 2vw, 22px); min-width: 0; }
       .panel-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 17px; }
       .service-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-      .service-card { padding: 13px; background: var(--surface-raised); }
+      .service-card { padding: 13px; background: var(--surface-raised); border: 1px solid var(--line); }
       .service-name { font-weight: 700; font-size: .9rem; }
       .service-status { display: inline-flex; gap: 6px; align-items: center; margin-top: 6px; color: var(--muted); font-size: .72rem; text-transform: capitalize; }
       .service-values { display: flex; flex-wrap: wrap; gap: 7px 12px; margin-top: 11px; color: var(--muted); font-size: .72rem; }
       .status-healthy { color: var(--green); }
-      .status-degraded, .status-down { color: var(--amber); }
+      .status-degraded { color: var(--amber); }
+      .status-down { color: var(--red); }
       .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
       label { display: grid; gap: 7px; color: var(--muted); font-size: .78rem; font-weight: 650; }
       label.wide { grid-column: 1 / -1; }
@@ -64,11 +69,15 @@
       .button { border: 1px solid var(--line); border-radius: 9px; background: var(--surface-raised); color: var(--text); padding: 10px 14px; font-weight: 700; }
       .button:hover { border-color: #68756c; }
       .button.primary { border-color: var(--green); background: var(--green); color: #101311; }
+      .button.danger { border-color: var(--red); background: var(--red-soft); color: var(--red); }
+      .button.danger:hover { background: #3b1818; }
       .button:disabled { cursor: wait; opacity: .6; }
+      .checkbox-label { display: flex; align-items: center; gap: 8px; font-weight: 500; cursor: pointer; color: var(--muted); font-size: .8rem; }
+      .checkbox-label input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--green); cursor: pointer; }
       .result-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
       .result-card { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-raised); }
       .result-card.wide { grid-column: 1 / -1; }
-      .lifecycle { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 11px; }
+      .lifecycle { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
       .lifecycle-step { min-width: 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-raised); }
       .lifecycle-name { margin-bottom: 6px; color: var(--muted); font-size: .72rem; }
       .lifecycle-state { font-size: .77rem; font-weight: 700; }
@@ -76,20 +85,26 @@
       .result-value strong { color: var(--text); }
       .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 8px; background: #303a33; color: var(--text); font-size: .69rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
       .badge.good { color: var(--green); background: var(--green-soft); }
-      .badge.warn { color: var(--amber); background: #352a17; }
-      .badge.bad { color: var(--red); background: #351c1c; }
+      .badge.warn { color: var(--amber); background: var(--amber-soft); }
+      .badge.bad { color: var(--red); background: var(--red-soft); }
+      .policy-alert { padding: 12px 14px; border-radius: 8px; margin-bottom: 12px; font-size: .82rem; line-height: 1.45; }
+      .policy-alert.denied { background: var(--red-soft); border: 1px solid var(--red); color: #ffb4b4; }
+      .policy-alert.approved { background: var(--green-soft); border: 1px solid var(--green); color: #cbeba0; }
       .history-list { display: grid; gap: 8px; max-height: 330px; overflow: auto; }
-      .history-item { width: 100%; text-align: left; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-raised); color: var(--text); }
+      .history-item { width: 100%; text-align: left; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-raised); color: var(--text); transition: border-color .15s; }
       .history-item:hover, .history-item.selected { border-color: var(--green); }
       .history-meta { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: .72rem; margin-top: 5px; }
       .audit-list { display: grid; gap: 0; }
-      .audit-item { display: grid; grid-template-columns: 18px 1fr; gap: 10px; padding: 0 0 15px; }
+      .audit-item { display: grid; grid-template-columns: 18px 1fr; gap: 10px; padding: 0 0 16px; }
       .audit-rail { position: relative; display: flex; justify-content: center; }
-      .audit-rail::after { position: absolute; top: 10px; bottom: -3px; width: 1px; background: var(--line); content: ""; }
+      .audit-rail::after { position: absolute; top: 12px; bottom: -4px; width: 1px; background: var(--line); content: ""; }
       .audit-item:last-child .audit-rail::after { display: none; }
-      .audit-dot { z-index: 1; width: 8px; height: 8px; margin-top: 3px; border-radius: 99px; background: var(--green); }
-      .audit-title { font-size: .81rem; font-weight: 700; text-transform: capitalize; }
+      .audit-dot { z-index: 1; width: 8px; height: 8px; margin-top: 4px; border-radius: 99px; background: var(--green); }
+      .audit-dot.fail { background: var(--red); }
+      .audit-title { font-size: .81rem; font-weight: 700; text-transform: capitalize; display: flex; align-items: center; gap: 8px; }
       .audit-description { margin-top: 4px; color: var(--muted); font-size: .76rem; line-height: 1.45; }
+      .audit-hashes { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: .67rem; color: #738078; }
+      .hash-pill { background: #111612; padding: 3px 6px; border-radius: 4px; border: 1px solid var(--line); word-break: break-all; }
       .audit-time { margin-top: 4px; color: #738078; font-size: .68rem; }
       .notice { margin: 14px 0; padding: 11px 13px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); font-size: .82rem; line-height: 1.45; }
       .notice.error { border-color: #753b3b; background: #281919; color: #ffb6b6; }
@@ -123,10 +138,15 @@
             <h1>Incident recovery</h1>
           </div>
         </div>
-        <div class="connection"><span id="health-dot" class="dot"></span><span id="health-label">Checking backend…</span></div>
+        <div class="header-status">
+          <div class="connection"><span id="health-dot" class="dot"></span><span id="health-label">Checking backend…</span></div>
+          <div class="connection"><span id="audit-integrity-dot" class="dot"></span><span id="audit-integrity-label">Auditing chain…</span></div>
+        </div>
       </header>
 
-      <p class="intro">Monitor simulated infrastructure, submit an incident to the recovery workflow, and inspect every diagnosis, decision, action, and verification. Recovery actions run only in the in-memory simulator; no production infrastructure is modified. The active count is derived from incident statuses in backend audit records; the API does not provide a live in-progress feed.</p>
+      <div class="simulation-banner">
+        <strong>Simulation Sandbox Active:</strong> All recovery actions (restarts, queue clears, instance scaling) modify an in-memory infrastructure simulator only; no physical production servers or cloud instances are altered. Every action is strictly governed by the Deterministic Policy Gate and verified independently.
+      </div>
 
       <section id="notice" class="notice hidden" role="status" aria-live="polite"></section>
 
@@ -134,26 +154,43 @@
         <article class="metric"><div class="metric-label">Services</div><div id="service-count" class="metric-value">—</div></article>
         <article class="metric"><div class="metric-label">Healthy</div><div id="healthy-count" class="metric-value">—</div></article>
         <article class="metric"><div class="metric-label">Needs attention</div><div id="attention-count" class="metric-value">—</div></article>
-        <article class="metric"><div class="metric-label">Active incidents</div><div id="active-incident-count" class="metric-value">—</div></article>
         <article class="metric"><div class="metric-label">Recorded incidents</div><div id="incident-count" class="metric-value">—</div></article>
+        <article class="metric"><div class="metric-label">Audit hash chain</div><div id="audit-chain-metric" class="metric-value" style="font-size:1.15rem;margin-top:12px;">Checking…</div></article>
       </section>
 
       <div class="layout">
         <div class="column">
           <section class="panel">
-            <div class="panel-heading"><h2>Infrastructure</h2><button id="refresh-button" class="button" type="button">Refresh</button></div>
+            <div class="panel-heading"><h2>Simulated infrastructure</h2><button id="refresh-button" class="button" type="button">Refresh</button></div>
             <div id="service-state" class="empty">Loading service health…</div>
           </section>
 
           <section class="panel">
-            <div class="panel-heading"><h2>Report an incident</h2></div>
+            <div class="panel-heading"><h2>Report incident & trigger recovery</h2></div>
             <form id="incident-form">
               <div class="form-grid">
-                <label>Service<select id="service-select" name="service_name" required disabled><option value="">Loading services…</option></select></label>
+                <label>Target service<select id="service-select" name="service_name" required disabled><option value="">Loading services…</option></select></label>
                 <label>Severity<select name="severity" required><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option><option value="critical">Critical</option></select></label>
-                <label class="wide">Incident details<textarea name="description" placeholder="Describe the observed incident or symptoms" maxlength="2000"></textarea></label>
+                <label class="wide">Observed symptoms / incident description<textarea name="description" placeholder="E.g. Transaction latency spiking with elevated error rates" maxlength="2000"></textarea></label>
               </div>
               <div class="actions"><button id="submit-button" class="button primary" type="submit">Run recovery workflow</button></div>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading"><h2>Administrative controls</h2><span class="badge warn">Protected</span></div>
+            <form id="reset-form">
+              <div class="form-grid">
+                <label class="wide">Admin Reset Token (if configured in environment)
+                  <input type="password" id="admin-token-input" placeholder="Leave blank if unset in local development" autocomplete="off">
+                </label>
+                <label class="wide checkbox-label">
+                  <input type="checkbox" id="clear-audit-checkbox"> Explicitly purge audit trail (unchecked = preserve history)
+                </label>
+              </div>
+              <div class="actions">
+                <button id="reset-button" class="button danger" type="submit">Reset infrastructure state</button>
+              </div>
             </form>
           </section>
 
@@ -165,14 +202,15 @@
 
         <div class="column">
           <section class="panel">
-            <div class="panel-heading"><h2>Recovery outcome</h2><span id="selected-incident-label" class="muted"></span></div>
-            <div class="notice">Simulation only · Backend confirmation required for every result.</div>
+            <div class="panel-heading"><h2>Recovery outcome & verification</h2><span id="selected-incident-label" class="muted"></span></div>
+            <div id="pipeline-status-banner" class="hidden"></div>
             <div id="lifecycle" class="lifecycle" aria-label="Recovery lifecycle"></div>
             <div id="recovery-result" class="empty">Submit an incident or select a recent one to inspect its recovery workflow.</div>
           </section>
+
           <section class="panel">
-            <div class="panel-heading"><h2>Audit history</h2></div>
-            <div id="audit-history" class="empty">Select an incident to view its audit events.</div>
+            <div class="panel-heading"><h2>Audit trail & cryptographic hash chain</h2><button id="verify-audit-button" class="button" type="button">Verify chain</button></div>
+            <div id="audit-history" class="empty">Select an incident to view its sequential audit trail.</div>
           </section>
         </div>
       </div>
@@ -181,7 +219,7 @@
     <script>
       "use strict";
 
-      const state = { services: [], records: [], selectedId: null, busy: false };
+      const state = { services: [], records: [], selectedId: null, busy: false, auditReport: null };
       const elements = {
         notice: document.querySelector("#notice"),
         serviceState: document.querySelector("#service-state"),
@@ -192,6 +230,12 @@
         auditHistory: document.querySelector("#audit-history"),
         form: document.querySelector("#incident-form"),
         submit: document.querySelector("#submit-button"),
+        resetForm: document.querySelector("#reset-form"),
+        resetButton: document.querySelector("#reset-button"),
+        adminTokenInput: document.querySelector("#admin-token-input"),
+        clearAuditCheckbox: document.querySelector("#clear-audit-checkbox"),
+        pipelineBanner: document.querySelector("#pipeline-status-banner"),
+        verifyAuditButton: document.querySelector("#verify-audit-button"),
       };
 
       function escapeHtml(value) {
@@ -213,7 +257,9 @@
           const detail = payload && typeof payload === "object"
             ? payload.detail || payload.message
             : payload;
-          throw new Error(detail || `Backend request failed (${response.status})`);
+          const err = new Error(detail || `Backend request failed (${response.status})`);
+          err.status = response.status;
+          throw err;
         }
         return payload;
       }
@@ -238,6 +284,29 @@
         return Number.isNaN(date.getTime()) ? escapeHtml(value) : date.toLocaleString();
       }
 
+      async function checkAuditIntegrity() {
+        const dot = document.querySelector("#audit-integrity-dot");
+        const label = document.querySelector("#audit-integrity-label");
+        const metric = document.querySelector("#audit-chain-metric");
+        try {
+          const report = await request("/audit/verify");
+          state.auditReport = report;
+          if (report.is_valid) {
+            dot.className = "dot online";
+            label.textContent = `Chain valid (${report.verified_events} events)`;
+            metric.innerHTML = `<span style="color:var(--green)">✓ Valid (${report.verified_events})</span>`;
+          } else {
+            dot.className = "dot offline";
+            label.textContent = `Chain compromised (${report.errors.length} errs)`;
+            metric.innerHTML = `<span style="color:var(--red)">⚠ Tampered (${report.errors.length})</span>`;
+          }
+        } catch (error) {
+          dot.className = "dot offline";
+          label.textContent = "Integrity check failed";
+          metric.innerHTML = '<span style="color:var(--muted)">Unavailable</span>';
+        }
+      }
+
       function renderServices() {
         const services = state.services;
         document.querySelector("#service-count").textContent = services.length;
@@ -260,27 +329,19 @@
         elements.serviceState.innerHTML = services.map((service) => `
           <article class="service-card">
             <div class="service-name">${escapeHtml(service.service_name)}</div>
-            <div class="service-status status-${escapeHtml(service.status)}"><span class="dot ${service.status === "healthy" ? "online" : ""}"></span>${escapeHtml(service.status)}</div>
+            <div class="service-status status-${escapeHtml(service.status)}"><span class="dot ${service.status === "healthy" ? "online" : "offline"}"></span>${escapeHtml(service.status)}</div>
             <div class="service-values">
-              <span>CPU ${Number(service.cpu_percent).toFixed(0)}%</span>
-              <span>Memory ${Number(service.memory_percent).toFixed(0)}%</span>
-              <span>Errors ${(Number(service.error_rate) * 100).toFixed(1)}%</span>
-              <span>Queue ${escapeHtml(service.queue_size)}</span>
-              <span>${escapeHtml(service.instances)} instances</span>
+              <span>CPU: ${Number(service.cpu_percent).toFixed(0)}%</span>
+              <span>RAM: ${Number(service.memory_percent).toFixed(0)}%</span>
+              <span>Errors: ${(Number(service.error_rate) * 100).toFixed(1)}%</span>
+              <span>Queue: ${escapeHtml(service.queue_size)}</span>
+              <span>Replicas: ${escapeHtml(service.instances)}</span>
             </div>
           </article>
         `).join("");
       }
 
-      function isActiveIncident(record) {
-        return ["detected", "approved", "executed"].includes(
-          String(record.incident?.status || "").toLowerCase(),
-        );
-      }
-
       function renderHistory() {
-        document.querySelector("#active-incident-count").textContent =
-          state.records.filter(isActiveIncident).length;
         document.querySelector("#incident-count").textContent = state.records.length;
         elements.historyState.textContent = state.records.length ? `${state.records.length} total` : "";
         if (!state.records.length) {
@@ -291,10 +352,11 @@
           const id = record.incident?.id || "";
           const service = record.incident?.service_name || "Unknown service";
           const severity = record.incident?.severity || "unknown";
-          const incidentStatus = record.incident?.status || record.pipeline_status || "unknown";
+          const pipelineStatus = record.pipeline_status || "unknown";
+          const statusKind = pipelineStatus === "success" ? "good" : pipelineStatus === "recovery_denied" ? "warn" : "bad";
           return `<button type="button" class="history-item ${state.selectedId === id ? "selected" : ""}" data-incident-id="${escapeHtml(id)}">
-            <strong>${escapeHtml(service)}</strong> · ${escapeHtml(severity)}
-            <div class="history-meta"><span>${escapeHtml(id)}</span><span>${escapeHtml(incidentStatus)}</span></div>
+            <strong>${escapeHtml(service)}</strong> · ${badge(severity)}
+            <div class="history-meta"><span>${escapeHtml(id)}</span>${badge(pipelineStatus, statusKind)}</div>
           </button>`;
         }).join("");
       }
@@ -307,49 +369,55 @@
         const recovery = details.recovery_result;
         const verification = details.verification_result;
         const summaries = {
-          diagnosis_completed: diagnosis?.likely_cause
-            ? `AI diagnosis: ${diagnosis.likely_cause}` : "",
+          diagnosis_completed: diagnosis?.likely_cause ? `AI diagnosis: ${diagnosis.likely_cause}` : "",
           diagnosis_fallback: [
-            diagnosis?.likely_cause ? `Fallback diagnosis: ${diagnosis.likely_cause}` : "",
+            diagnosis?.likely_cause ? `Deterministic fallback diagnosis: ${diagnosis.likely_cause}` : "",
             details.diagnosis_fallback?.reason ? `Fallback reason: ${details.diagnosis_fallback.reason}` : "",
           ].filter(Boolean).join(" · "),
-          action_proposed: action
-            ? `Proposed ${action.action_type || "action"} for ${action.target_service || "unknown target"}` : "",
-          policy_evaluated: decision
-            ? `Policy ${decision.verdict || "decision"}: ${decision.reason || ""}` : "",
-          recovery_executed: recovery
-            ? `Simulated execution ${recovery.success ? "succeeded" : "failed"}: ${recovery.message || ""}` : "",
-          recovery_skipped: details.policy_verdict
-            ? `Not executed; policy verdict: ${details.policy_verdict}` : "Recovery was not executed.",
-          verification_completed: verification
-            ? `Verification ${verification.outcome || "result"}: ${verification.details || ""}` : "",
-          pipeline_completed: details.pipeline_status
-            ? `Final pipeline status: ${details.pipeline_status}` : "",
+          action_proposed: action ? `Proposed action: ${action.action_type || "action"} for service ${action.target_service || "unknown"}` : "",
+          policy_evaluated: decision ? `Policy verdict: ${decision.verdict} — ${decision.reason || ""}` : "",
+          recovery_executed: recovery ? `Simulated execution ${recovery.success ? "succeeded" : "failed"}: ${recovery.message || ""}` : "",
+          recovery_skipped: details.policy_verdict ? `Execution skipped; policy verdict: ${details.policy_verdict}` : "Recovery execution skipped by policy gate.",
+          verification_completed: verification ? `Independent verification ${verification.outcome}: ${verification.details || ""}` : "",
+          pipeline_completed: details.pipeline_status ? `Pipeline outcome: ${details.pipeline_status}` : "",
         };
         return summaries[event.event_type] || "";
       }
 
       function renderAudit(events) {
-        if (!events.length) {
+        if (!events || !events.length) {
           elements.auditHistory.className = "empty";
-          elements.auditHistory.textContent = "No audit events are available for this incident.";
+          elements.auditHistory.textContent = "No sequential audit events found for this incident.";
           return;
         }
         elements.auditHistory.className = "audit-list";
         const chronologicalEvents = [...events].sort((first, second) =>
           (Date.parse(first.timestamp || "") || 0) - (Date.parse(second.timestamp || "") || 0)
         );
-        elements.auditHistory.innerHTML = chronologicalEvents.map((event) => `
+        elements.auditHistory.innerHTML = chronologicalEvents.map((event) => {
+          const hasChain = Boolean(event.event_hash);
+          return `
           <article class="audit-item">
-            <div class="audit-rail"><span class="audit-dot"></span></div>
+            <div class="audit-rail"><span class="audit-dot ${event.success === false ? "fail" : ""}"></span></div>
             <div>
-              <div class="audit-title">${escapeHtml((event.event_type || "event").replaceAll("_", " "))} ${event.success === false ? badge("Failed", "bad") : ""}</div>
+              <div class="audit-title">
+                ${escapeHtml((event.event_type || "event").replaceAll("_", " "))}
+                ${event.success === false ? badge("Failed", "bad") : badge("OK", "good")}
+                ${hasChain ? '<span class="badge good" style="font-size:0.6rem;">⛓ Hash Linked</span>' : ""}
+              </div>
               <div class="audit-description">${escapeHtml(event.explanation || event.component_name || "")}</div>
-              ${auditEventSummary(event) ? `<div class="audit-description">${escapeHtml(auditEventSummary(event))}</div>` : ""}
+              ${auditEventSummary(event) ? `<div class="audit-description" style="color:var(--text);font-weight:600;">${escapeHtml(auditEventSummary(event))}</div>` : ""}
+              ${hasChain ? `
+                <div class="audit-hashes">
+                  <span class="hash-pill">prev: ${escapeHtml(event.previous_hash || "GENESIS")}</span>
+                  <span class="hash-pill">hash: ${escapeHtml(event.event_hash)}</span>
+                </div>
+              ` : ""}
               <div class="audit-time">${escapeHtml(event.component_name || "System")} · ${escapeHtml(formatDate(event.timestamp))}</div>
             </div>
           </article>
-        `).join("");
+        `;
+        }).join("");
       }
 
       function renderLifecycle(record, events) {
@@ -361,24 +429,21 @@
         const approved = policy?.verdict === "approve";
         const stages = [
           ["Diagnosis", diagnosisEvent
-            ? (diagnosisEvent.event_type === "diagnosis_fallback" ? "Deterministic fallback recorded" : "AI diagnosis recorded")
-            : "No diagnosis event returned"],
-          ["Planning", eventTypes.has("action_proposed") || record.recovery_action
-            ? "Proposal recorded" : "No proposal returned"],
-          ["Policy", policy
-            ? `${policy.verdict}${policy.reason ? ` · ${policy.reason}` : ""}`
-            : "No policy decision returned"],
-          ["Execution", eventTypes.has("recovery_skipped") || (policy && !approved)
-            ? "Not executed — policy did not approve"
+            ? (diagnosisEvent.event_type === "diagnosis_fallback" ? "Rule Fallback (Deterministic)" : "AI Nemotron Model")
+            : "No diagnosis returned"],
+          ["Planning", eventTypes.has("action_proposed") || record.recovery_action ? "Proposal generated" : "No proposal"],
+          ["Policy Gate", policy ? `${policy.verdict.toUpperCase()}` : "Not evaluated"],
+          ["Execution", !approved
+            ? "Blocked by Policy Gate"
             : record.recovery_result
-              ? `Simulated execution ${record.recovery_result.success ? "succeeded" : "failed"}`
-              : "No execution result returned"],
+              ? `Simulated ${record.recovery_result.success ? "Success" : "Failed"}`
+              : "Not executed"],
           ["Verification", record.verification_result
-            ? `Verification ${record.verification_result.outcome}`
-            : policy && !approved
-              ? "Not run — action was not approved"
-              : "No verification result returned"],
-          ["Final result", record.pipeline_status || "No final status returned"],
+            ? `Probe ${record.verification_result.outcome.toUpperCase()}`
+            : !approved
+              ? "Skipped (Policy Denied)"
+              : "Not verified"],
+          ["Pipeline", record.pipeline_status ? record.pipeline_status.toUpperCase() : "Unknown"],
         ];
         elements.lifecycle.innerHTML = stages.map(([name, value]) => `
           <div class="lifecycle-step">
@@ -391,7 +456,7 @@
       function renderRecord(record, events = record.audit_events || []) {
         state.selectedId = record.incident?.id || record.incident_id || null;
         renderHistory();
-        document.querySelector("#selected-incident-label").textContent = state.selectedId || "";
+        document.querySelector("#selected-incident-label").textContent = state.selectedId ? `Incident ID: ${state.selectedId}` : "";
 
         const action = record.recovery_action || null;
         const parameters = action?.parameters || {};
@@ -400,9 +465,8 @@
         const fallbackEvent = events.find((event) => event.event_type === "diagnosis_fallback");
         const diagnosisEvent = events.find((event) => event.event_type === "diagnosis_completed");
         const actionEvent = events.find((event) => event.event_type === "action_proposed");
-        const isFallback = Boolean(
-          fallbackEvent || actionEvent?.details?.diagnosis_fallback,
-        );
+        const isFallback = Boolean(fallbackEvent || actionEvent?.details?.diagnosis_fallback);
+
         const diagnosis = fallbackEvent?.details?.diagnosis
           || diagnosisEvent?.details?.diagnosis
           || actionEvent?.details?.diagnosis
@@ -416,71 +480,110 @@
 
         let diagnosisHtml;
         if (diagnosis) {
-          const kind = isFallback ? "warn" : diagnosisEvent ? "good" : "";
-          const source = isFallback ? "Deterministic fallback"
-            : diagnosisEvent ? "AI diagnosis" : "Diagnosis";
-          diagnosisHtml = `<strong>${badge(source, kind)}</strong><p>${escapeHtml(diagnosis.likely_cause || "Cause not provided")}</p>
+          const kind = isFallback ? "warn" : "good";
+          const source = isFallback ? "Deterministic Rule Fallback" : "AI Diagnosis (Nemotron-3-Super)";
+          diagnosisHtml = `
+            <div style="margin-bottom:8px;">${badge(source, kind)}</div>
+            <p><strong>Likely cause:</strong> ${escapeHtml(diagnosis.likely_cause || "Not specified")}</p>
             <p class="muted">Confidence: ${diagnosis.confidence == null ? "—" : `${(Number(diagnosis.confidence) * 100).toFixed(0)}%`}</p>
-            ${diagnosis.evidence?.length ? `<p class="muted">Evidence: ${escapeHtml(diagnosis.evidence.join(" · "))}</p>` : ""}
-            ${diagnosis.recommended_action_id ? `<p class="muted">Diagnostic recommendation: ${escapeHtml(diagnosis.recommended_action_id)}</p>` : ""}
-            ${diagnosis.rationale ? `<p class="muted">${escapeHtml(diagnosis.rationale)}</p>` : ""}
-            ${diagnosis.uncertainty_or_notes ? `<p class="muted">${escapeHtml(diagnosis.uncertainty_or_notes)}</p>` : ""}`;
+            ${diagnosis.evidence?.length ? `<p class="muted">Evidence citations: ${escapeHtml(diagnosis.evidence.join(" · "))}</p>` : ""}
+            ${diagnosis.rationale ? `<p class="muted">Diagnostic rationale: ${escapeHtml(diagnosis.rationale)}</p>` : ""}
+            ${diagnosis.uncertainty_or_notes ? `<p class="muted">Uncertainty notes: ${escapeHtml(diagnosis.uncertainty_or_notes)}</p>` : ""}`;
         } else {
           diagnosisHtml = '<span class="muted">No diagnosis result was returned for this incident.</span>';
         }
-        const fallbackReason = fallbackEvent?.details?.diagnosis_fallback?.reason
-          || actionEvent?.details?.diagnosis_fallback?.reason;
+        const fallbackReason = fallbackEvent?.details?.diagnosis_fallback?.reason || actionEvent?.details?.diagnosis_fallback?.reason;
         if (fallbackReason) {
-          diagnosisHtml += `<p class="muted">AI fallback reason: ${escapeHtml(fallbackReason)}</p>`;
+          diagnosisHtml += `<div class="notice" style="margin-top:8px;padding:8px 10px;"><strong>Fallback Triggered:</strong> ${escapeHtml(fallbackReason)}</div>`;
         }
 
-        const policyKind = decision?.verdict === "approve" ? "good" : decision ? "bad" : "";
-        const recoveryKind = record.recovery_result?.success ? "good"
-          : record.recovery_result ? "bad" : record.pipeline_status === "recovery_denied" ? "warn" : "";
-        const verificationKind = verification?.outcome === "pass" ? "good" : verification ? "bad" : "";
+        const policyKind = decision?.verdict === "approve" ? "good" : "bad";
+        const recoveryKind = record.recovery_result?.success ? "good" : record.recovery_result ? "bad" : "warn";
+        const verificationKind = verification?.outcome === "pass" ? "good" : "bad";
+
+        // Pipeline Status Banner
+        const banner = elements.pipelineBanner;
+        banner.className = "policy-alert";
+        if (record.pipeline_status === "success") {
+          banner.className += " approved";
+          banner.innerHTML = "<strong>✓ Autonomous Recovery Verified:</strong> Recovery action approved by policy gate, executed in simulation, and confirmed healthy by independent probes.";
+        } else if (record.pipeline_status === "recovery_denied") {
+          banner.className += " denied";
+          banner.innerHTML = `<strong>⛔ Action Blocked by Deterministic Policy Gate:</strong> ${escapeHtml(decision?.reason || "Policy rejected action without execution.")}`;
+        } else if (record.pipeline_status === "recovery_failed") {
+          banner.className += " denied";
+          banner.innerHTML = "<strong>✕ Simulated Recovery Execution Failed:</strong> Recovery executor reported an error; post-recovery verification was skipped.";
+        } else if (record.pipeline_status === "verification_failed") {
+          banner.className += " denied";
+          banner.innerHTML = `<strong>⚠ Independent Verification Failed:</strong> Executor claimed success, but independent health probe failed: ${escapeHtml(verification?.details || "")}`;
+        } else {
+          banner.className = "hidden";
+        }
 
         renderLifecycle(record, events);
         elements.recoveryResult.className = "result-grid";
         elements.recoveryResult.innerHTML = `
           <article class="result-card">
-            <h3>Incident</h3>
-            <div class="result-value"><strong>${escapeHtml(record.incident?.service_name || "Incident")}</strong><br>${escapeHtml(record.incident?.title || record.incident?.description || "")}<br><span class="muted">Status: ${escapeHtml(record.incident?.status || "unknown")} · ${escapeHtml(record.incident?.severity || "")} · ${escapeHtml(state.selectedId || "")}</span></div>
+            <h3>Incident details</h3>
+            <div class="result-value">
+              <strong>${escapeHtml(record.incident?.service_name || "Incident")}</strong><br>
+              ${escapeHtml(record.incident?.title || record.incident?.description || "")}<br>
+              <span class="muted">Status: ${escapeHtml(record.incident?.status || "unknown")} · Severity: ${escapeHtml(record.incident?.severity || "")}</span>
+            </div>
           </article>
           <article class="result-card">
-            <h3>Diagnosis</h3>
+            <h3>Root cause diagnosis</h3>
             <div class="result-value">${diagnosisHtml}</div>
           </article>
           <article class="result-card">
             <h3>Recovery proposal</h3>
-            <div class="result-value">${action
-              ? `${badge(action.action_type || "unknown")}<p>Target: <strong>${escapeHtml(action.target_service)}</strong></p><p class="muted">${escapeHtml(JSON.stringify(parameters))}</p>`
-              : '<span class="muted">No proposal returned.</span>'}</div>
+            <div class="result-value">
+              ${action ? `
+                ${badge(action.action_type || "unknown")}
+                <p>Target service: <strong>${escapeHtml(action.target_service)}</strong></p>
+                <p class="muted">Parameters: ${escapeHtml(JSON.stringify(parameters))}</p>
+                <p class="muted">Simulation safe: ${action.safe_for_simulation ? "Yes" : "No"} · Risk level: ${action.risk_level}</p>
+              ` : '<span class="muted">No recovery proposal returned.</span>'}
+            </div>
           </article>
           <article class="result-card">
-            <h3>Policy decision</h3>
-            <div class="result-value">${decision
-              ? `${badge(decision.verdict, policyKind)}<p>${escapeHtml(decision.reason || "")}</p>`
-              : '<span class="muted">No policy decision returned.</span>'}</div>
+            <h3>Deterministic policy decision</h3>
+            <div class="result-value">
+              ${decision ? `
+                ${badge(decision.verdict, policyKind)}
+                <p>${escapeHtml(decision.reason || "")}</p>
+                <p class="muted">Evaluated by: ${escapeHtml(decision.decided_by || "DeterministicPolicyGate")}</p>
+              ` : '<span class="muted">No policy decision returned.</span>'}
+            </div>
           </article>
           <article class="result-card">
-            <h3>Execution</h3>
-            <div class="result-value">${decision && decision.verdict !== "approve"
-              ? `${badge("Not executed", "warn")}<p>Policy did not approve the action. No recovery was executed.</p><p class="muted">${escapeHtml(decision.reason || "")}</p>`
-              : !decision
-                ? '<span class="muted">Execution cannot be confirmed because no policy decision was returned.</span>'
-                : record.recovery_result
-                  ? `${badge(`Simulated · ${record.recovery_result.success ? "Confirmed" : "Failed"}`, recoveryKind)}<p>${escapeHtml(record.recovery_result.message || "")}</p><p class="muted">${escapeHtml(record.recovery_result.action_type || "")} · ${escapeHtml(formatDate(record.recovery_result.completed_at))}</p>`
-                  : '<span class="muted">No execution result returned.</span>'}</div>
+            <h3>Simulated execution</h3>
+            <div class="result-value">
+              ${decision && decision.verdict !== "approve" ? `
+                ${badge("Not executed", "warn")}
+                <p>Action was rejected by the policy gate. Executor was not invoked.</p>
+              ` : record.recovery_result ? `
+                ${badge(`Simulated · ${record.recovery_result.success ? "Success" : "Failed"}`, recoveryKind)}
+                <p>${escapeHtml(record.recovery_result.message || "")}</p>
+                <p class="muted">Action: ${escapeHtml(record.recovery_result.action_type || "")} · Completed: ${escapeHtml(formatDate(record.recovery_result.completed_at))}</p>
+              ` : '<span class="muted">No execution result recorded.</span>'}
+            </div>
           </article>
           <article class="result-card">
-            <h3>Independent verification</h3>
-            <div class="result-value">${verification
-              ? `${badge(verification.outcome, verificationKind)}<p>${escapeHtml(verification.details || "")}</p><p class="muted">${escapeHtml((verification.checks_performed || []).join(" · "))}</p>`
-              : '<span class="muted">No verification result returned.</span>'}</div>
+            <h3>Independent post-recovery verification</h3>
+            <div class="result-value">
+              ${verification ? `
+                ${badge(`Probe ${verification.outcome.toUpperCase()}`, verificationKind)}
+                <p>${escapeHtml(verification.details || "")}</p>
+                <p class="muted">Checks performed: ${escapeHtml((verification.checks_performed || []).join(" · "))}</p>
+              ` : decision && decision.verdict !== "approve" ? `
+                <span class="muted">Verification skipped because action was blocked by policy.</span>
+              ` : '<span class="muted">No independent verification result recorded.</span>'}
+            </div>
           </article>
           <article class="result-card wide">
-            <h3>Pipeline status ${badge(record.pipeline_status || "unknown", record.pipeline_status === "success" ? "good" : record.pipeline_status === "recovery_denied" ? "warn" : "")}</h3>
-            <div class="result-value">${escapeHtml(record.incident?.status || "")}</div>
+            <h3>Final pipeline status ${badge(record.pipeline_status || "unknown", record.pipeline_status === "success" ? "good" : record.pipeline_status === "recovery_denied" ? "warn" : "bad")}</h3>
+            <div class="result-value">Incident lifecycle ended as: <strong>${escapeHtml(record.incident?.status || record.pipeline_status || "")}</strong></div>
           </article>
         `;
         renderAudit(events);
@@ -491,8 +594,10 @@
         const healthPromise = request("/health");
         const servicesPromise = request("/services");
         const historyPromise = request("/audit");
+        const auditIntegrityPromise = checkAuditIntegrity();
+
         const [healthResult, servicesResult, historyResult] = await Promise.allSettled([
-          healthPromise, servicesPromise, historyPromise,
+          healthPromise, servicesPromise, historyPromise, auditIntegrityPromise,
         ]);
 
         const healthDot = document.querySelector("#health-dot");
@@ -526,12 +631,6 @@
           elements.historyList.innerHTML = '<div class="empty">Unable to load incident history.</div>';
           elements.historyState.textContent = "";
         }
-
-        if (healthResult.status === "rejected" || servicesResult.status === "rejected" || historyResult.status === "rejected") {
-          const failed = [healthResult, servicesResult, historyResult]
-            .filter((result) => result.status === "rejected");
-          showNotice(failed.map((result) => result.reason.message).join(" · "), "error");
-        }
       }
 
       elements.form.addEventListener("submit", async (event) => {
@@ -540,13 +639,13 @@
         hideNotice();
         state.busy = true;
         elements.submit.disabled = true;
-        elements.submit.textContent = "Submitting incident…";
+        elements.submit.textContent = "Running recovery pipeline…";
         document.querySelector("#selected-incident-label").textContent = "";
         elements.lifecycle.innerHTML = "";
         elements.recoveryResult.className = "empty";
-        elements.recoveryResult.textContent = "Incident submitted. Waiting for the backend recovery workflow to confirm diagnosis, policy, execution, and verification…";
+        elements.recoveryResult.textContent = "Incident submitted. Waiting for backend diagnosis, policy evaluation, simulated recovery, and independent verification…";
         elements.auditHistory.className = "empty";
-        elements.auditHistory.textContent = "Waiting for the backend to return audit events.";
+        elements.auditHistory.textContent = "Waiting for audit trail…";
 
         const formData = new FormData(elements.form);
         const payload = {
@@ -566,17 +665,15 @@
           renderRecord(record);
           showNotice(
             record.pipeline_status === "success"
-              ? "Backend confirmed the recovery workflow completed successfully."
-              : `Backend completed the workflow with status: ${record.pipeline_status || "unknown"}.`,
-            record.pipeline_status === "success" ? "success" : "error",
+              ? "✓ Recovery workflow executed successfully and independently verified."
+              : `Workflow concluded with status: ${record.pipeline_status || "unknown"}.`,
+            record.pipeline_status === "success" ? "success" : "notice",
           );
-          await refreshServicesAndHistory();
+          await refreshDashboard();
         } catch (error) {
           elements.lifecycle.innerHTML = "";
           elements.recoveryResult.className = "empty";
-          elements.recoveryResult.textContent = "The backend did not confirm a recovery result.";
-          elements.auditHistory.className = "empty";
-          elements.auditHistory.textContent = "No audit events were returned for this submission.";
+          elements.recoveryResult.textContent = "Backend encountered an error during incident handling.";
           showNotice(error.message || "Unable to submit incident.", "error");
         } finally {
           state.busy = false;
@@ -585,29 +682,49 @@
         }
       });
 
-      async function refreshServicesAndHistory() {
-        const [servicesResult, historyResult] = await Promise.allSettled([
-          request("/services"),
-          request("/audit"),
-        ]);
-        if (servicesResult.status === "fulfilled") {
-          state.services = servicesResult.value;
-          renderServices();
-        }
-        if (historyResult.status === "fulfilled") {
-          state.records = [...historyResult.value].filter((record) => record?.incident).reverse();
-          renderHistory();
-        }
-        if (state.selectedId) {
-          try {
-            const events = await request(`/incidents/${encodeURIComponent(state.selectedId)}/audit`);
-            const selected = state.records.find((record) => record.incident?.id === state.selectedId);
-            if (selected) renderRecord(selected, events);
-          } catch (error) {
-            showNotice(`Incident result loaded, but audit refresh failed: ${error.message}`, "error");
+      elements.resetForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (state.busy) return;
+        hideNotice();
+        state.busy = true;
+        elements.resetButton.disabled = true;
+        elements.resetButton.textContent = "Resetting infrastructure…";
+
+        const token = elements.adminTokenInput.value.trim();
+        const clearAudit = elements.clearAuditCheckbox.checked;
+        const headers = token ? { "X-Admin-Token": token } : {};
+
+        try {
+          const res = await request("/reset", {
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify({ clear_audit: clearAudit }),
+          });
+          showNotice(
+            clearAudit
+              ? "Infrastructure reset to healthy defaults and audit history cleared."
+              : "Infrastructure reset to healthy defaults (audit history preserved).",
+            "success",
+          );
+          await refreshDashboard();
+          if (clearAudit) {
+            elements.recoveryResult.className = "empty";
+            elements.recoveryResult.textContent = "System reset. Submit an incident to start a new recovery workflow.";
+            elements.auditHistory.className = "empty";
+            elements.auditHistory.textContent = "Audit trail was cleared.";
           }
+        } catch (error) {
+          if (error.status === 401) {
+            showNotice("Reset rejected: Unauthorized. Provide a valid Admin Reset Token in the input field.", "error");
+          } else {
+            showNotice(`Reset failed: ${error.message}`, "error");
+          }
+        } finally {
+          state.busy = false;
+          elements.resetButton.disabled = false;
+          elements.resetButton.textContent = "Reset infrastructure state";
         }
-      }
+      });
 
       elements.historyList.addEventListener("click", async (event) => {
         const button = event.target.closest("[data-incident-id]");
@@ -625,16 +742,16 @@
         }
       });
 
-      document.querySelector("#refresh-button").addEventListener("click", async () => {
-        try {
-          await refreshDashboard();
-          if (state.selectedId) {
-            const events = await request(`/incidents/${encodeURIComponent(state.selectedId)}/audit`);
-            const record = state.records.find((item) => item.incident?.id === state.selectedId);
-            if (record) renderRecord(record, events);
-          }
-        } catch (error) {
-          showNotice(error.message || "Unable to refresh dashboard.", "error");
+      document.querySelector("#refresh-button").addEventListener("click", refreshDashboard);
+      elements.verifyAuditButton.addEventListener("click", async () => {
+        await checkAuditIntegrity();
+        if (state.auditReport) {
+          showNotice(
+            state.auditReport.is_valid
+              ? `✓ Audit trail verified: All ${state.auditReport.verified_events} events form an unbroken cryptographic hash chain.`
+              : `⚠ Audit integrity compromised: ${state.auditReport.errors.join("; ")}`,
+            state.auditReport.is_valid ? "success" : "error"
+          );
         }
       });
 

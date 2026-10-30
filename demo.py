@@ -23,6 +23,12 @@ Demonstrates the complete lifecycle:
 
 from __future__ import annotations
 
+import os
+
+import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
 import argparse
 import json
 import os
@@ -87,6 +93,12 @@ def pretty_json(data: Any) -> str:
     return json.dumps(data, indent=2, default=str)
 
 
+def _reset_state(client: TestClient) -> None:
+    token = os.getenv("ADMIN_RESET_TOKEN", "").strip()
+    headers = {"X-Admin-Token": token} if token else {}
+    client.post("/reset", headers=headers)
+
+
 def run_scenario_1_primary_recovery(client: TestClient) -> Dict[str, Any]:
     """Scenario 1: Primary End-to-End Payment Service Recovery Flow."""
     header("Scenario 1: End-to-End Autonomous Incident Recovery (Payment Service)")
@@ -94,6 +106,7 @@ def run_scenario_1_primary_recovery(client: TestClient) -> Dict[str, Any]:
     # 1. Reset state & register payment service in an unhealthy state
     subheader("Step 1", "Inject Incident: Payment Service is Unhealthy")
     reset_simulator(client)
+    _reset_state(client)
     payment_initial_state = SystemState(
         service_name="payment-service",
         status=ServiceStatus.DEGRADED,
@@ -188,7 +201,7 @@ def run_scenario_2_unsafe_action_rejected(client: TestClient) -> Dict[str, Any]:
     """Scenario 2: Unsafe Action Rejected by Policy Gate."""
     header("Scenario 2: Policy Gate Rejects Unsafe Action")
 
-    reset_simulator(client)
+    _reset_state(client)
     infra.register_service("payment-service", status=ServiceStatus.DEGRADED, cpu_percent=95.0, memory_percent=99.0, error_rate=0.4)
 
     # Proposed action is explicitly marked unsafe for simulation
@@ -237,7 +250,7 @@ def run_scenario_3_unknown_service_rejected(client: TestClient) -> Dict[str, Any
     """Scenario 3: Unknown Service Rejected by Policy Gate."""
     header("Scenario 3: Policy Gate Rejects Unknown Service")
 
-    reset_simulator(client)
+    _reset_state(client)
     unknown_action = RecoveryAction(
         incident_id="inc-unknown-003",
         action_type=RecoveryActionType.RESTART_SERVICE,
@@ -275,14 +288,14 @@ def run_scenario_3_unknown_service_rejected(client: TestClient) -> Dict[str, Any
     return data
 
 
-def run_scenario_4_executor_failure(client: TestClient) -> Dict[str, Any]:
-    """Scenario 4: Executor Failure (Scale exceeds maximum limit)."""
-    header("Scenario 4: Simulated Executor Failure")
+def run_scenario_4_unsafe_scaling_rejected(client: TestClient) -> Dict[str, Any]:
+    """Scenario 4: Policy Gate Rejects Unsafe Scaling (50 instances > max limit 10)."""
+    header("Scenario 4: Policy Gate Rejects Unsafe Scaling")
 
-    reset_simulator(client)
+    _reset_state(client)
     infra.register_service("payment-service", status=ServiceStatus.DEGRADED, cpu_percent=85.0, memory_percent=70.0, error_rate=0.2, instances=2)
 
-    # Approved by policy gate (scale_service with target_instances), but exceeds executor max scale limit (10)
+    # Action requests scaling to 50 instances, exceeding deterministic policy gate limit (max 10)
     excessive_scale_action = RecoveryAction(
         incident_id="inc-scale-fail-004",
         action_type=RecoveryActionType.SCALE_SERVICE,
@@ -307,30 +320,35 @@ def run_scenario_4_executor_failure(client: TestClient) -> Dict[str, Any]:
         },
     }
 
-    print(f"{DIM}Submitting action scaling payment-service to 50 instances (max limit 10)...{RESET}")
+    print(f"{DIM}Submitting action scaling payment-service to 50 instances (policy limit 10)...{RESET}")
     res = client.post("/incidents/recover", json=request_payload)
     assert res.status_code == 200
     data = res.json()
 
-    print(f"Policy Gate Verdict: {GREEN}{BOLD}{data['policy_decision']['verdict'].upper()}{RESET} (Approved parameter presence)")
-    print(f"Executor Success: {RED}{BOLD}{data['recovery_result']['success']}{RESET}")
-    print(f"Executor Failure Message: {data['recovery_result']['message']}")
-    print(f"Pipeline Status: {RED}{BOLD}{data['final_status'].upper()}{RESET}")
-    print(f"Independent Verifier Skipped: {BOLD}{data['verification_result'] is None}{RESET} (Expected: True)")
+    print(f"Policy Decision Verdict: {RED}{BOLD}{data['policy_decision']['verdict'].upper()}{RESET}")
+    print(f"Rejection Reason: {data['policy_decision']['reason']}")
+    print(f"Pipeline Status: {YELLOW}{BOLD}{data['final_status']}{RESET}")
+    print(f"Executor Invoked: {BOLD}{data['recovery_result'] is not None}{RESET} (Expected: False)")
+    print(f"Verifier Invoked: {BOLD}{data['verification_result'] is not None}{RESET} (Expected: False)")
 
-    assert data["policy_decision"]["verdict"] == "approve"
-    assert data["recovery_result"]["success"] is False
-    assert data["final_status"] == "recovery_failed"
+    assert data["policy_decision"]["verdict"] == "deny"
+    assert data["final_status"] == "recovery_denied"
+    assert data["recovery_result"] is None
     assert data["verification_result"] is None
-    print(f"\n{GREEN}{BOLD}✓ Scenario 4 Completed: Executor failure properly intercepted!{RESET}")
+    assert "limit" in data["policy_decision"]["reason"].lower() or "exceeds" in data["policy_decision"]["reason"].lower()
+    print(f"\n{GREEN}{BOLD}✓ Scenario 4 Completed: Unsafe scaling blocked by deterministic policy gate before execution!{RESET}")
     return data
+
+
+# Backwards compatibility alias
+run_scenario_4_executor_failure = run_scenario_4_unsafe_scaling_rejected
 
 
 def run_scenario_5_verification_failure(client: TestClient) -> Dict[str, Any]:
     """Scenario 5: Independent Verification Failure."""
     header("Scenario 5: Post-Recovery Independent Verification Failure")
 
-    reset_simulator(client)
+    _reset_state(client)
     infra.register_service("payment-service", status=ServiceStatus.DEGRADED, cpu_percent=60.0, memory_percent=55.0, error_rate=0.4)
 
     # Custom verifier simulating post-recovery latent failure (health check probe returns 500)
@@ -422,7 +440,7 @@ def run_all_demonstrations(client: Optional[TestClient] = None) -> Dict[str, Any
     print(f"  1. Primary Recovery (Payment Service) : {GREEN}{BOLD}PASS (Status: success){RESET}")
     print(f"  2. Unsafe Action Rejection             : {GREEN}{BOLD}PASS (Status: recovery_denied){RESET}")
     print(f"  3. Unknown Service Rejection           : {GREEN}{BOLD}PASS (Status: recovery_denied){RESET}")
-    print(f"  4. Executor Failure Handling           : {GREEN}{BOLD}PASS (Status: recovery_failed){RESET}")
+    print(f"  4. Unsafe Scaling Rejection            : {GREEN}{BOLD}PASS (Status: recovery_denied){RESET}")
     print(f"  5. Independent Verification Failure    : {GREEN}{BOLD}PASS (Status: verification_failed){RESET}")
     print(f"\n{GREEN}{BOLD}All 5 demonstration scenarios executed successfully with full audit trail!{RESET}\n")
 
