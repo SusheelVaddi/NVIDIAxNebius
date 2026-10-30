@@ -130,7 +130,7 @@ Canonical names take precedence over aliases when both are configured. The liste
 | `NEBIUS_TIMEOUT_SECONDS` | `30` | `NEMOTRON_TIMEOUT_SECONDS` | Shared request timeout; invalid values use the default. |
 | `NEBIUS_MOCK_MODE` | `false` | `NEMOTRON_MOCK_MODE` | Use local diagnosis mock behavior and deterministic planner fallback. |
 | `ENABLE_AI_DIAGNOSIS` | `false` | — | Opt in to the AI diagnosis stage. |
-| `ADMIN_RESET_TOKEN` | unset | — | If configured, `/reset` requires the matching `X-Admin-Reset-Token` header. |
+| `ADMIN_RESET_TOKEN` | unset | — | If configured, `/reset` requires the matching `X-Admin-Token` header or `Authorization: Bearer`. Missing or invalid tokens return HTTP 401. |
 
 For local development, leaving `ADMIN_RESET_TOKEN` unset preserves the existing open simulator reset endpoint. Configure it for shared or deployed environments.
 
@@ -188,7 +188,7 @@ Other read endpoints include `GET /health`, `GET /services`, `GET /audit`, and `
 
 ```bash
 curl -X POST http://127.0.0.1:8000/reset \
-  -H "X-Admin-Reset-Token: $ADMIN_RESET_TOKEN"
+  -H "X-Admin-Token: $ADMIN_RESET_TOKEN"
 ```
 
 ## Safety and audit guardrails

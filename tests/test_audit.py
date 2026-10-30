@@ -84,14 +84,22 @@ def test_hash_chain_verifies_after_restart_and_detects_tampering(logger: AuditLo
         explanation="Incident received.",
     )
     logger.log(_make_record())
-    assert logger.verify_integrity() is True
-    assert AuditLogger(path=logger.path).verify_integrity() is True
+    assert logger.verify_integrity().is_valid is True
+    assert AuditLogger(path=logger.path).verify_integrity().is_valid is True
 
     lines = logger.path.read_text(encoding="utf-8").splitlines()
     lines[0] = lines[0].replace("Incident received.", "Tampered event.")
     logger.path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    assert logger.verify_integrity() is False
+    assert logger.verify_integrity().is_valid is False
+    with pytest.raises(RuntimeError, match="Cannot append to an invalid audit log"):
+        logger.record_event(
+            incident_id="integrity-test",
+            component_name="Orchestrator",
+            event_type="follow_up",
+            success=True,
+            explanation="Must not append to a tampered log.",
+        )
 # ==============================================================================
 # End-to-End Audit Trail & Observability Scenario Tests
 # ==============================================================================
