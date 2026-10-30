@@ -19,18 +19,27 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from app.audit import AuditLogger, audit_logger as default_audit_logger
+from app.diagnosis import (
+    DiagnosisError,
+    DiagnosisResult,
+    DeterministicIncidentDiagnoser,
+    IncidentDiagnoser,
+    NemotronAPIError,
+    NemotronAuthError,
+    NemotronClient,
+    NemotronClientError,
+    NemotronConnectionError,
+    NemotronResponseError,
+    NemotronTimeoutError,
+)
 from app.infrastructure import InfrastructureSimulator, infra as default_infra
 from app.models import (
     AuditEventType,
-    DecisionVerdict,
     Incident,
     IncidentResponse,
-    IncidentSeverity,
     IncidentStatus,
     PipelineStatus,
-    PolicyDecision,
     RecoveryAction,
-    RecoveryActionType,
     RecoveryResult,
     VerificationOutcome,
     VerificationResult,
@@ -57,6 +66,7 @@ class Orchestrator:
         verifier: Optional[IndependentVerifier] = None,
         audit_logger: Optional[AuditLogger] = None,
         planner: Optional[RecoveryPlanner] = None,
+        diagnoser: Optional[IncidentDiagnoser] = None,
     ) -> None:
         self.infra = infra if infra is not None else default_infra
         self.policy_gate = policy_gate if policy_gate is not None else DeterministicPolicyGate()
@@ -70,6 +80,14 @@ class Orchestrator:
             self.planner = NebiusPlanner(api_key=api_key)
         else:
             self.planner = DeterministicMockPlanner()
+        if diagnoser is not None:
+            self.diagnoser = diagnoser
+        elif os.getenv("ENABLE_AI_DIAGNOSIS", "").strip().lower() in {
+            "1", "true", "yes", "t", "on"
+        }:
+            self.diagnoser = IncidentDiagnoser(client=NemotronClient())
+        else:
+            self.diagnoser = None
 
     @staticmethod
     def from_monitoring_payload(payload: MonitoringIncidentPayload, *, infra=None, audit_logger=None, **kwargs) -> "Orchestrator":
@@ -137,14 +155,100 @@ class Orchestrator:
         )
 
         # -------------------------------------------------------------------
-        # Step 3: Ask RecoveryPlanner for a proposed action
+        # Step 3: Ask for a proposed action
         # -------------------------------------------------------------------
-        action = proposed_action or self.planner.plan(incident, state_before)
+        diagnosis: Optional[DiagnosisResult] = None
+        diagnosis_fallback: Optional[dict[str, str]] = None
+        planner_name = getattr(self.planner, "__class__", type(self.planner)).__name__
+
+        if proposed_action is not None:
+            action = proposed_action
+        elif self.diagnoser is None:
+            action = self.planner.plan(incident, state_before)
+        else:
+            if state_before is not None:
+                try:
+                    diagnosis = self.diagnoser.diagnose(incident, state_before)
+                except (DiagnosisError, NemotronClientError) as exc:
+                    if isinstance(exc, DiagnosisError):
+                        fallback_reason = "schema_validation_failed"
+                    elif isinstance(exc, NemotronTimeoutError):
+                        fallback_reason = "timeout"
+                    elif isinstance(exc, NemotronConnectionError):
+                        fallback_reason = "connection_failure"
+                    elif isinstance(exc, NemotronAuthError):
+                        fallback_reason = "authentication_failure"
+                    elif isinstance(exc, NemotronAPIError):
+                        fallback_reason = "api_error"
+                    elif isinstance(exc, NemotronResponseError):
+                        fallback_reason = "response_error"
+                    else:
+                        fallback_reason = "client_error"
+                    diagnosis_fallback = {
+                        "status": "failed",
+                        "reason": fallback_reason,
+                    }
+                else:
+                    self.audit_logger.record_event(
+                        incident_id=incident.id,
+                        component_name="IncidentDiagnoser",
+                        event_type=AuditEventType.DIAGNOSIS_COMPLETED,
+                        success=True,
+                        explanation=(
+                            "AI diagnosis completed and validated; it is advisory only."
+                        ),
+                        details={
+                            "source": "ai",
+                            "diagnosis": diagnosis.model_dump(mode="json"),
+                        },
+                    )
+            else:
+                diagnosis_fallback = {
+                    "status": "unavailable",
+                    "reason": "system_state_unavailable",
+                }
+
+            if diagnosis_fallback is not None:
+                diagnosis = DeterministicIncidentDiagnoser().diagnose(
+                    incident, state_before
+                )
+                self.audit_logger.record_event(
+                    incident_id=incident.id,
+                    component_name="DeterministicIncidentDiagnoser",
+                    event_type=AuditEventType.DIAGNOSIS_FALLBACK,
+                    success=True,
+                    explanation=(
+                        "AI diagnosis was unavailable; deterministic diagnosis was "
+                        "derived from available incident and infrastructure evidence."
+                    ),
+                    details={
+                        "source": "deterministic_fallback",
+                        "diagnosis_fallback": diagnosis_fallback,
+                        "diagnosis": diagnosis.model_dump(mode="json"),
+                    },
+                )
+
+            if diagnosis is None:
+                raise RuntimeError("Diagnoser completed without returning a diagnosis.")
+
+            action = self.planner.plan_with_diagnosis(
+                incident,
+                state_before,
+                diagnosis,
+            )
+            planner_name = getattr(self.planner, "__class__", type(self.planner)).__name__
 
         # -------------------------------------------------------------------
         # Step 4: Record the recommendation in the audit log
         # -------------------------------------------------------------------
-        planner_name = getattr(self.planner, "__class__", type(self.planner)).__name__
+        action_details = {
+            "recovery_action": action.model_dump(mode="json"),
+            "planner": planner_name,
+        }
+        if diagnosis is not None and diagnosis_fallback is None:
+            action_details["diagnosis"] = diagnosis.model_dump(mode="json")
+        if diagnosis_fallback is not None:
+            action_details["diagnosis_fallback"] = diagnosis_fallback
         self.audit_logger.record_event(
             incident_id=incident.id,
             component_name="RecoveryPlanner",
@@ -154,16 +258,14 @@ class Orchestrator:
                 f"RecoveryPlanner ({planner_name}) recommended action '{action.action_type.value}' "
                 f"targeting service '{action.target_service}' with parameters {action.parameters}."
             ),
-            details={
-                "recovery_action": action.model_dump(mode="json"),
-                "planner": planner_name,
-            },
+            details=action_details,
         )
 
         # -------------------------------------------------------------------
         # Step 5: Send the action to DeterministicPolicyGate
         # -------------------------------------------------------------------
-        policy_decision = self.policy_gate.evaluate(action, state_before)
+        action_target_state = self.infra.get_service(action.target_service)
+        policy_decision = self.policy_gate.evaluate(action, action_target_state)
         is_approved = policy_decision.is_approved
         self.audit_logger.record_event(
             incident_id=incident.id,

@@ -93,6 +93,8 @@ class AuditEventType(str, enum.Enum):
     INCIDENT_RECEIVED = "incident_received"
     INCIDENT_DETECTED = "incident_detected"
     STATE_LOADED = "state_loaded"
+    DIAGNOSIS_COMPLETED = "diagnosis_completed"
+    DIAGNOSIS_FALLBACK = "diagnosis_fallback"
     ACTION_PROPOSED = "action_proposed"
     ACTION_RECOMMENDED = "action_recommended"
     POLICY_EVALUATED = "policy_evaluated"
@@ -484,4 +486,3 @@ class RecoveryResponse(BaseModel):
     @property
     def status(self) -> PipelineStatus:
         return self.final_status
-

@@ -13,10 +13,11 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.api.routes import get_orchestrator
-from app.audit import AuditLogger
+from app.audit import AuditLogger, audit_logger
 from app.infrastructure import InfrastructureSimulator
 from app.main import app
 from app.models import (
+    AuditEvent,
     IncidentSeverity,
     RecoveryAction,
     RecoveryActionType,
@@ -54,6 +55,17 @@ def test_health_check():
     res_api = client.get("/api/health")
     assert res_api.status_code == 200
     assert res_api.json() == {"status": "ok"}
+
+
+def test_dashboard_is_served_from_application():
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "Incident recovery" in response.text
+
+    dashboard_response = client.get("/dashboard")
+    assert dashboard_response.status_code == 200
+    assert dashboard_response.text == response.text
 
 
 # ---------------------------------------------------------------------------
@@ -349,3 +361,54 @@ def test_list_and_get_services():
     res_get = client.get("/services/web-frontend")
     assert res_get.status_code == 200
     assert res_get.json()["service_name"] == "web-frontend"
+
+
+def test_dashboard_incident_and_audit_endpoints():
+    response = client.post(
+        "/incidents",
+        json={
+            "service_name": "web-frontend",
+            "severity": "low",
+            "description": "Dashboard recovery integration test",
+        },
+    )
+    assert response.status_code == 200
+    record = response.json()
+    assert record["pipeline_status"] == "success"
+    assert record["recovery_action"]["action_type"] == "restart_service"
+    assert record["policy_decision"]["verdict"] == "approve"
+    assert record["recovery_result"]["success"] is True
+    assert record["verification_result"]["outcome"] == "pass"
+
+    history = client.get("/audit")
+    assert history.status_code == 200
+    assert any(item["incident"]["id"] == record["incident"]["id"] for item in history.json())
+
+    audit = client.get(f"/incidents/{record['incident']['id']}/audit")
+    assert audit.status_code == 200
+    assert any(item["event_type"] == "action_proposed" for item in audit.json())
+
+
+def test_audit_endpoint_reconstructs_legacy_event_only_history(monkeypatch):
+    response = client.post(
+        "/incidents",
+        json={
+            "service_name": "web-frontend",
+            "severity": "low",
+            "description": "Legacy audit history test",
+        },
+    )
+    assert response.status_code == 200
+    response_record = response.json()
+    events = [
+        AuditEvent.model_validate(event)
+        for event in response_record["audit_events"]
+    ]
+    monkeypatch.setattr(audit_logger, "read_all", lambda: events)
+
+    history = client.get("/audit")
+    assert history.status_code == 200
+    records = history.json()
+    assert len(records) == 1
+    assert records[0]["incident"]["id"] == response_record["incident"]["id"]
+    assert records[0]["pipeline_status"] == response_record["pipeline_status"]

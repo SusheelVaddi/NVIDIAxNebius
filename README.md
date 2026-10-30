@@ -2,7 +2,7 @@
 
 > **NVIDIA × Nebius Hackathon 2026**
 
-An autonomous incident mitigation and recovery system that **detects** simulated IT incidents, **plans** remediation using an AI planner (or deterministic fallback), **decides** whether recovery is safe via an explainable deterministic policy gate, **executes** simulated recovery actions in-memory, **independently verifies** the resulting system state, and records an append-only chronological **audit trail**.
+An autonomous incident mitigation and recovery system that **detects** simulated IT incidents, **diagnoses** likely causes using NVIDIA Nemotron (or an evidence-grounded deterministic fallback), **plans** remediation, **decides** whether recovery is safe via an explainable deterministic policy gate, **executes** simulated recovery actions in-memory, **independently verifies** the resulting system state, and records an append-only chronological **audit trail**.
 
 ---
 
@@ -180,6 +180,9 @@ Runs all 5 scenarios with colored console output, request/response JSON previews
 | `NEBIUS_TOKEN_FACTORY_API_KEY` | *(None / Empty)* | API Key for authenticating with the Nebius Token Factory / Nebius Studio API. |
 | `NEBIUS_TOKEN_FACTORY_BASE_URL` | `https://api.studio.nebius.ai/v1` | Base URL for OpenAI-compatible Nebius chat completions. |
 | `NEBIUS_MODEL` | `nvidia/llama-3.1-nemotron-70b-instruct` | NVIDIA Nemotron model hosted on Nebius Token Factory. |
+| `ENABLE_AI_DIAGNOSIS` | `false` | Enables the Nemotron diagnosis stage before recovery planning. |
+| `NEBIUS_API_KEY` | *(None / Empty)* | Credential used by the Nemotron diagnosis client (`NEMOTRON_API_KEY` is also supported). |
+| `NEBIUS_MODEL_ID` | `nvidia/nemotron-3-super-120b-a12b` | Diagnosis model (`NEMOTRON_MODEL` is also supported). |
 
 ---
 
@@ -223,6 +226,18 @@ python3 demo.py
 ```
 
 When the environment variable is set, the orchestrator uses `NebiusPlanner`. When it is absent or the Nebius API call fails, the system automatically falls back to `DeterministicMockPlanner` while the policy gate remains the final authority.
+
+### Optional Nemotron Diagnosis
+
+Diagnosis is disabled by default to preserve existing API and demo behavior. To enable it, configure the diagnosis client and opt in:
+
+```bash
+export ENABLE_AI_DIAGNOSIS=true
+export NEBIUS_API_KEY="your-nebius-api-key"
+# Optional: set NEBIUS_MODEL_ID to select the diagnosis model.
+```
+
+The diagnosis service receives the incident and available infrastructure snapshot, validates Nemotron output with `DiagnosisResult`, and passes the validated diagnosis to the recovery planner. If diagnosis fails, a deterministic fallback diagnosis cites only available incident and telemetry facts and is explicitly marked as a fallback in the audit trail. Diagnosis and planning are advisory: the deterministic policy gate still decides whether a proposal may execute, and only the simulated executor performs approved actions.
 
 ### How Nebius Planning Works:
 1. The orchestrator calls `NebiusPlanner.plan(incident, system_state)`.
