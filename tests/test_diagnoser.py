@@ -21,6 +21,7 @@ import pytest
 from app.diagnosis import (
     DiagnosisError,
     DiagnosisResult,
+    DeterministicIncidentDiagnoser,
     IncidentDiagnoser,
     NemotronAPIError,
     NemotronAuthError,
@@ -181,6 +182,29 @@ def test_valid_diagnosis_markdown_fenced_json(
 
     assert isinstance(result, DiagnosisResult)
     assert result.recommended_action_id == "restart_service"
+
+
+def test_deterministic_fallback_diagnosis_uses_observed_state(
+    sample_incident, sample_system_state
+):
+    result = DeterministicIncidentDiagnoser().diagnose(
+        sample_incident, sample_system_state
+    )
+
+    assert result.confidence < 0.5
+    assert result.recommended_action_id == "clear_queue"
+    assert any("450" in evidence for evidence in result.evidence)
+    assert "fallback" in result.uncertainty_or_notes.lower()
+
+
+def test_deterministic_fallback_diagnosis_does_not_invent_missing_state(
+    sample_incident,
+):
+    result = DeterministicIncidentDiagnoser().diagnose(sample_incident, None)
+
+    assert result.confidence < 0.5
+    assert "Insufficient infrastructure telemetry" in result.likely_cause
+    assert any("unavailable" in evidence for evidence in result.evidence)
 
 
 def test_valid_diagnosis_with_conversational_preamble_and_fence(

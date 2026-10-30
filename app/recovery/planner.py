@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional
 import httpx
 from pydantic import BaseModel, Field
 
+from app.diagnosis.models import DiagnosisResult
 from app.models import (
     Incident,
     IncidentSeverity,
@@ -68,6 +69,24 @@ class RecoveryPlanner(abc.ABC):
         """Analyze incident and system state to propose a RecoveryAction."""
         pass
 
+    def plan_with_diagnosis(
+        self,
+        incident: Incident,
+        state: Optional[SystemState],
+        diagnosis: DiagnosisResult,
+    ) -> RecoveryAction:
+        """Plan with diagnosis context while preserving existing planner implementations."""
+        action = self.plan(incident, state)
+        parameters = {
+            **action.parameters,
+            "diagnosis_likely_cause": diagnosis.likely_cause,
+            "diagnosis_confidence": diagnosis.confidence,
+            "diagnosis_evidence": diagnosis.evidence,
+            "diagnosis_rationale": diagnosis.rationale,
+            "diagnosis_uncertainty_or_notes": diagnosis.uncertainty_or_notes,
+        }
+        return action.model_copy(update={"parameters": parameters})
+
 
 class DeterministicMockPlanner(RecoveryPlanner):
     """Deterministic, rule-based recovery planner used for local tests and fallback."""
@@ -103,6 +122,36 @@ class DeterministicMockPlanner(RecoveryPlanner):
             action_type=action_type,
             target_service=incident.service_name,
             parameters=params,
+            safe_for_simulation=True,
+            risk_level=1,
+            retry_count=0,
+        )
+
+    def plan_with_diagnosis(
+        self,
+        incident: Incident,
+        state: Optional[SystemState],
+        diagnosis: DiagnosisResult,
+    ) -> RecoveryAction:
+        action_type = RecoveryActionType(diagnosis.recommended_action_id)
+        parameters: Dict[str, Any] = {
+            "severity": incident.severity.value,
+            "diagnosis_likely_cause": diagnosis.likely_cause,
+            "diagnosis_confidence": diagnosis.confidence,
+            "diagnosis_evidence": diagnosis.evidence,
+            "diagnosis_rationale": diagnosis.rationale,
+            "diagnosis_uncertainty_or_notes": diagnosis.uncertainty_or_notes,
+        }
+        if action_type in {
+            RecoveryActionType.SCALE_SERVICE,
+            RecoveryActionType.SCALE_UP,
+        }:
+            parameters["target_instances"] = state.instances + 1 if state else 2
+        return RecoveryAction(
+            incident_id=incident.id,
+            action_type=action_type,
+            target_service=incident.service_name,
+            parameters=parameters,
             safe_for_simulation=True,
             risk_level=1,
             retry_count=0,
@@ -151,6 +200,22 @@ class NebiusPlanner(RecoveryPlanner):
         incident: Incident,
         state: Optional[SystemState],
     ) -> RecoveryAction:
+        return self._plan(incident, state, diagnosis=None)
+
+    def plan_with_diagnosis(
+        self,
+        incident: Incident,
+        state: Optional[SystemState],
+        diagnosis: DiagnosisResult,
+    ) -> RecoveryAction:
+        return self._plan(incident, state, diagnosis=diagnosis)
+
+    def _plan(
+        self,
+        incident: Incident,
+        state: Optional[SystemState],
+        diagnosis: Optional[DiagnosisResult],
+    ) -> RecoveryAction:
         """Call Nebius Token Factory to generate a strictly validated RecoveryAction.
 
         Falls back to DeterministicMockPlanner if credentials are missing or any error occurs.
@@ -158,10 +223,14 @@ class NebiusPlanner(RecoveryPlanner):
         # Fall back if no API key is configured
         if not self.api_key or not self.api_key.strip():
             logger.info("NEBIUS_TOKEN_FACTORY_API_KEY not set. Using DeterministicMockPlanner fallback.")
+            if diagnosis is not None:
+                return self.fallback_planner.plan_with_diagnosis(
+                    incident, state, diagnosis
+                )
             return self.fallback_planner.plan(incident, state)
 
         try:
-            proposal = self._call_nebius_api(incident, state)
+            proposal = self._call_nebius_api(incident, state, diagnosis)
             parameters = {
                 **proposal.parameters,
                 "severity": incident.severity.value,
@@ -169,6 +238,14 @@ class NebiusPlanner(RecoveryPlanner):
                 "ai_confidence": proposal.confidence,
                 "ai_model": self.model,
             }
+            if diagnosis is not None:
+                parameters.update({
+                    "diagnosis_likely_cause": diagnosis.likely_cause,
+                    "diagnosis_confidence": diagnosis.confidence,
+                    "diagnosis_evidence": diagnosis.evidence,
+                    "diagnosis_rationale": diagnosis.rationale,
+                    "diagnosis_uncertainty_or_notes": diagnosis.uncertainty_or_notes,
+                })
             return RecoveryAction(
                 incident_id=incident.id,
                 action_type=proposal.action_type,
@@ -180,17 +257,23 @@ class NebiusPlanner(RecoveryPlanner):
             )
         except Exception as exc:
             logger.warning("NebiusPlanner call or validation failed: %s. Using fallback planner.", exc)
+            if diagnosis is not None:
+                return self.fallback_planner.plan_with_diagnosis(
+                    incident, state, diagnosis
+                )
             return self.fallback_planner.plan(incident, state)
 
     def _call_nebius_api(
         self,
         incident: Incident,
         state: Optional[SystemState],
+        diagnosis: Optional[DiagnosisResult] = None,
     ) -> AIPlanProposal:
         """Execute OpenAI-compatible HTTP request and validate strict JSON response."""
         system_prompt = (
             "You are an Autonomous IT Incident Recovery Planning AI for NVIDIA and Nebius infrastructure. "
-            "Analyze the incident details and current system state, then propose a recovery action.\n\n"
+            "Analyze the incident details and current system state, then propose a recovery action. "
+            "If diagnosis context is supplied, use it as advisory input and do not treat it as policy approval.\n\n"
             "You MUST respond ONLY with a strict JSON object containing EXACTLY these keys:\n"
             "- \"action_type\": one of [\"restart_service\", \"clear_queue\", \"scale_service\", \"scale_up\", \"failover\"]\n"
             "- \"target_service\": string service name\n"
@@ -210,6 +293,7 @@ class NebiusPlanner(RecoveryPlanner):
                     "description": incident.description,
                 },
                 "system_state": state.model_dump(mode="json") if state else None,
+                "diagnosis": diagnosis.model_dump(mode="json") if diagnosis else None,
             },
             indent=2,
         )

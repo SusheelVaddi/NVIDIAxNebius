@@ -1,7 +1,11 @@
 """Diagnosis module for AI-driven incident analysis."""
 
 from app.diagnosis.client import NemotronClient
-from app.diagnosis.diagnoser import AIDiagnoser, IncidentDiagnoser
+from app.diagnosis.diagnoser import (
+    AIDiagnoser,
+    DeterministicIncidentDiagnoser,
+    IncidentDiagnoser,
+)
 from app.diagnosis.exceptions import (
     DiagnosisError,
     NemotronAPIError,
@@ -21,6 +25,7 @@ __all__ = [
     "DiagnosisResult",
     "NemotronClient",
     "IncidentDiagnoser",
+    "DeterministicIncidentDiagnoser",
     "AIDiagnoser",
     "DiagnosisError",
     "NemotronClientError",

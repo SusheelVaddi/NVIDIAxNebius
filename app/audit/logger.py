@@ -74,6 +74,8 @@ class AuditLogger:
         """Record an end-to-end incident response / audit record."""
         with self._lock:
             self._pipeline_records.append(record)
+            with open(self._path, "a", encoding="utf-8") as fh:
+                fh.write(record.model_dump_json() + "\n")
 
     def log(self, record: Union[AuditEvent, AuditRecord, IncidentResponse]) -> None:
         """Backwards compatibility for logging AuditEvent or legacy AuditRecord."""
@@ -132,7 +134,8 @@ class AuditLogger:
             with self._lock:
                 return list(self._events)
 
-        records: List[Any] = []
+        pipeline_records: List[AuditRecord] = []
+        events: List[AuditEvent] = []
         with self._lock:
             with open(self._path, "r", encoding="utf-8") as fh:
                 for line in fh:
@@ -142,12 +145,12 @@ class AuditLogger:
                     try:
                         data = json.loads(line)
                         if "pipeline_status" in data:
-                            records.append(AuditRecord.model_validate(data))
+                            pipeline_records.append(AuditRecord.model_validate(data))
                         elif "component_name" in data:
-                            records.append(AuditEvent.model_validate(data))
+                            events.append(AuditEvent.model_validate(data))
                     except Exception:
                         pass
-        return records
+        return pipeline_records if pipeline_records else events
 
     def clear(self) -> None:
         """Clear both in-memory and persisted audit logs."""

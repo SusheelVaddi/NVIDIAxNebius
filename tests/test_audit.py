@@ -54,3 +54,22 @@ def test_clear(logger: AuditLogger):
     logger.log(_make_record())
     logger.clear()
     assert logger.read_all() == []
+
+
+def test_pipeline_records_persist_alongside_events(logger: AuditLogger):
+    record = _make_record()
+    logger.record_event(
+        incident_id=record.incident.id,
+        component_name="Orchestrator",
+        event_type="incident_received",
+        success=True,
+        explanation="Incident received.",
+    )
+    logger.log_pipeline_record(record)
+
+    restarted_logger = AuditLogger(path=logger.path)
+    persisted = restarted_logger.read_all()
+
+    assert len(persisted) == 1
+    assert isinstance(persisted[0], AuditRecord)
+    assert persisted[0].incident.id == record.incident.id

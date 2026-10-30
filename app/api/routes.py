@@ -16,9 +16,13 @@ from app.audit import audit_logger
 from app.infrastructure import infra
 from app.models import (
     AuditEvent,
+    AuditEventType,
     AuditRecord,
     Incident,
+    IncidentResponse,
     IncidentSeverity,
+    IncidentStatus,
+    PipelineStatus,
     RecoveryRequest,
     RecoveryResponse,
     ServiceInfo,
@@ -170,10 +174,77 @@ def create_incident(body: IncidentRequest):
     return record
 
 
+def _records_from_events(events: List[AuditEvent]) -> List[AuditRecord]:
+    """Reconstruct listable pipeline summaries from legacy event-only audit logs."""
+    grouped: dict[str, List[AuditEvent]] = {}
+    for event in events:
+        grouped.setdefault(event.incident_id, []).append(event)
+
+    records: List[AuditRecord] = []
+    for incident_events in grouped.values():
+        event_by_type = {event.event_type: event for event in incident_events}
+        received = event_by_type.get(AuditEventType.INCIDENT_RECEIVED.value)
+        completed = event_by_type.get(AuditEventType.PIPELINE_COMPLETED.value)
+        if received is None or completed is None:
+            continue
+
+        incident_data = received.details.get("incident")
+        status_data = completed.details.get("pipeline_status")
+        if not isinstance(incident_data, dict) or status_data not in {
+            status.value for status in PipelineStatus
+        }:
+            continue
+        incident_data = dict(incident_data)
+        incident_data["status"] = completed.details.get(
+            "incident_status", IncidentStatus.FAILED.value
+        )
+
+        state_event = event_by_type.get(AuditEventType.STATE_LOADED.value)
+        action_event = event_by_type.get(AuditEventType.ACTION_PROPOSED.value)
+        policy_event = event_by_type.get(AuditEventType.POLICY_EVALUATED.value)
+        recovery_event = event_by_type.get(AuditEventType.RECOVERY_EXECUTED.value)
+        verification_event = event_by_type.get(AuditEventType.VERIFICATION_COMPLETED.value)
+
+        records.append(AuditRecord(
+            incident=incident_data,
+            system_state_before=(
+                state_event.details.get("system_state_before") if state_event else None
+            ),
+            recovery_action=(
+                action_event.details.get("recovery_action") if action_event else None
+            ),
+            policy_decision=(
+                policy_event.details.get("policy_decision") if policy_event else None
+            ),
+            recovery_result=(
+                recovery_event.details.get("recovery_result") if recovery_event else None
+            ),
+            verification_result=(
+                verification_event.details.get("verification_result")
+                if verification_event else None
+            ),
+            audit_events=incident_events,
+            pipeline_status=status_data,
+            started_at=incident_events[0].timestamp,
+            completed_at=completed.timestamp,
+        ))
+    return records
+
+
 @router.get("/audit", response_model=List[AuditRecord])
 def list_audit_records():
     """Return every audit record (most-recent last)."""
-    return audit_logger.read_all()
+    entries = audit_logger.read_all()
+    records = [
+        AuditRecord.model_validate(record.model_dump())
+        for record in entries
+        if isinstance(record, (AuditRecord, IncidentResponse))
+    ]
+    if records:
+        return records
+    return _records_from_events(
+        [entry for entry in entries if isinstance(entry, AuditEvent)]
+    )
 
 
 @router.post("/reset")
