@@ -3,7 +3,7 @@
 import pytest
 
 from app.infrastructure import InfrastructureSimulator
-from app.models import IncidentSeverity, RecoveryAction, RecoveryActionType, VerificationOutcome
+from app.models import IncidentSeverity, RecoveryAction, RecoveryActionType, ServiceStatus, VerificationOutcome
 from app.verification import IndependentVerifier, verify
 
 
@@ -88,3 +88,65 @@ def test_normal_restart_recovery_with_no_backlog_passes(sim: InfrastructureSimul
     assert result.outcome == VerificationOutcome.PASS
     assert any("queue_backlog_acceptable:PASS(0)" in c for c in result.checks_performed)
 
+
+# ==============================================================================
+# Production IndependentVerifier Component Tests
+# ==============================================================================
+
+def test_independent_verifier_target_mismatch_fails(sim: InfrastructureSimulator):
+    verifier = IndependentVerifier()
+    action = RecoveryAction(
+        incident_id="inc-verif-target-01",
+        action_type=RecoveryActionType.RESTART_SERVICE,
+        target_service="auth-service",
+        safe_for_simulation=True,
+    )
+    result = verifier.verify(service_name="web-frontend", infra=sim, action=action)
+    assert result.outcome == VerificationOutcome.FAIL
+    assert "target service mismatch" in result.details.lower()
+    assert any("target_service_match:FAIL" in c for c in result.checks_performed)
+
+
+def test_independent_verifier_high_error_rate_fails(sim: InfrastructureSimulator):
+    verifier = IndependentVerifier(max_error_rate=0.05)
+    current = sim.get_service("web-frontend")
+    sim.update_service_state(current.model_copy(update={"error_rate": 0.15, "status": ServiceStatus.HEALTHY}))
+
+    result = verifier.verify("web-frontend", sim)
+    assert result.outcome == VerificationOutcome.FAIL
+    assert "error rate" in result.details.lower()
+    assert any("error_rate_acceptable:FAIL" in c for c in result.checks_performed)
+
+
+def test_independent_verifier_scale_mismatch_fails(sim: InfrastructureSimulator):
+    verifier = IndependentVerifier()
+    sim.scale_service("web-frontend", 2)
+
+    scale_action = RecoveryAction(
+        incident_id="inc-verif-scale-01",
+        action_type=RecoveryActionType.SCALE_SERVICE,
+        target_service="web-frontend",
+        parameters={"target_instances": 4},
+        safe_for_simulation=True,
+    )
+    result = verifier.verify("web-frontend", sim, action=scale_action)
+    assert result.outcome == VerificationOutcome.FAIL
+    assert "instance count 2 does not match expected 4" in result.details.lower()
+    assert any("instances_scaled:FAIL" in c for c in result.checks_performed)
+
+
+def test_independent_verifier_scale_matches_passes(sim: InfrastructureSimulator):
+    verifier = IndependentVerifier()
+    sim.scale_service("web-frontend", 4)
+
+    scale_action = RecoveryAction(
+        incident_id="inc-verif-scale-02",
+        action_type=RecoveryActionType.SCALE_SERVICE,
+        target_service="web-frontend",
+        parameters={"target_instances": 4},
+        safe_for_simulation=True,
+    )
+    result = verifier.verify("web-frontend", sim, action=scale_action)
+    assert result.outcome == VerificationOutcome.PASS
+    assert any("instances_scaled:PASS(4)" in c for c in result.checks_performed)
+    assert any("target_service_match:PASS(web-frontend)" in c for c in result.checks_performed)

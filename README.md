@@ -116,11 +116,12 @@ Member 3 was responsible for designing, implementing, testing, and documenting t
    - Built `NebiusPlanner` integrating the OpenAI-compatible Nebius Token Factory API with the NVIDIA Nemotron model (`nvidia/llama-3.1-nemotron-70b-instruct`) using strict Pydantic JSON validation (`AIPlanProposal`).
    - Created `DeterministicMockPlanner` providing offline, rule-based planning and automatic fallback.
 
-7. **FastAPI Endpoints (`app.api.routes`)**:
-   - Implemented `POST /incidents/recover`, `GET /incidents/{incident_id}/audit`, and `GET /health` with complete request and response schema models.
+7. **FastAPI Endpoints & Dashboard (`app.api.routes`, `frontend/index.html`)**:
+   - Implemented `POST /incidents/recover`, `POST /incidents`, `GET /services`, `GET /audit`, `GET /incidents/{id}/audit`, `GET /audit/verify`, `POST /reset`, and `GET /health`.
+   - Bundled the single-page incident recovery web dashboard served at `GET /` and `GET /dashboard`.
 
 8. **End-to-End Demonstrations & Tests (`demo.py`, `tests/`)**:
-   - Authored the comprehensive demonstration suite (`demo.py`) and full automated test suite (82 passing tests covering all success and failure branches).
+   - Authored the comprehensive multi-scenario demonstration suite (`demo.py`) and full automated test suite (319 passing tests covering diagnosis, policy safety, verifier, audit hash chain, API, and frontend integration).
 
 ---
 
@@ -161,7 +162,7 @@ The FastAPI application will start at **http://127.0.0.1:8000**.
 pytest -v
 ```
 
-All 82 unit and integration tests will run and pass in under 1 second.
+All 319 unit and integration tests will run and pass in ~4 seconds.
 
 ### 4. Run the End-to-End Demonstration
 
@@ -183,6 +184,7 @@ Runs all 5 scenarios with colored console output, request/response JSON previews
 | `ENABLE_AI_DIAGNOSIS` | `false` | Enables the Nemotron diagnosis stage before recovery planning. |
 | `NEBIUS_API_KEY` | *(None / Empty)* | Credential used by the Nemotron diagnosis client (`NEMOTRON_API_KEY` is also supported). |
 | `NEBIUS_MODEL_ID` | `nvidia/nemotron-3-super-120b-a12b` | Diagnosis model (`NEMOTRON_MODEL` is also supported). |
+| `ADMIN_RESET_TOKEN` | *(None / Empty)* | Optional administrative token protecting `POST /reset`. If set, resets require `X-Admin-Token` or `Authorization: Bearer`. |
 
 ---
 

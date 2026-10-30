@@ -77,6 +77,14 @@ class IndependentVerifier:
 
         # Check 4: Action-specific verification
         if action:
+            # Check target service match
+            if action.target_service != service_name:
+                checks_performed.append(f"target_service_match:FAIL({action.target_service}!={service_name})")
+                failures.append(
+                    f"target service mismatch: recovery action targets '{action.target_service}' while verifying '{service_name}'"
+                )
+            else:
+                checks_performed.append(f"target_service_match:PASS({service_name})")
             if action.action_type == RecoveryActionType.CLEAR_QUEUE:
                 if svc.queue_size == 0:
                     checks_performed.append("queue_cleared:PASS")

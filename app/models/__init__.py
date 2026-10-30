@@ -362,6 +362,8 @@ class AuditEvent(BaseModel):
                           description="Success or failure")
     explanation: str = Field(default="", max_length=1024,
                              description="Human-readable explanation")
+    previous_hash: Optional[str] = Field(default=None, description="SHA-256 hash of previous audit event in chain")
+    event_hash: Optional[str] = Field(default=None, description="Cryptographic SHA-256 hash of this audit event")
 
     @model_validator(mode="before")
     @classmethod
@@ -486,3 +488,11 @@ class RecoveryResponse(BaseModel):
     @property
     def status(self) -> PipelineStatus:
         return self.final_status
+
+
+class AuditIntegrityReport(BaseModel):
+    """Result of audit trail cryptographic integrity and chronological verification."""
+    is_valid: bool = Field(description="Whether all events form an unbroken, uncorrupted hash chain")
+    verified_events: int = Field(default=0, description="Total number of events verified")
+    errors: List[str] = Field(default_factory=list, description="Integrity errors detected")
+    warnings: List[str] = Field(default_factory=list, description="Warnings detected")

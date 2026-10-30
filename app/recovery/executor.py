@@ -22,7 +22,8 @@ class SimulatedRecoveryExecutor:
     - scaling a service within a configured limit
     """
 
-    def __init__(self, max_scale_limit: int = 10) -> None:
+    def __init__(self, min_scale_limit: int = 1, max_scale_limit: int = 10) -> None:
+        self.min_scale_limit = min_scale_limit
         self.max_scale_limit = max_scale_limit
 
     def execute(
@@ -47,11 +48,39 @@ class SimulatedRecoveryExecutor:
 
             # 3. Scaling a service within a configured limit
             elif action_type in (RecoveryActionType.SCALE_SERVICE, RecoveryActionType.SCALE_UP):
+                current = infra.get_service(action.target_service)
+                if current and (current.instances < self.min_scale_limit or current.instances > self.max_scale_limit):
+                    return RecoveryResult(
+                        action_id=action.id,
+                        incident_id=action.incident_id,
+                        action_type=action.action_type,
+                        target_service=action.target_service,
+                        success=False,
+                        message=(
+                            f"Scaling rejected: current instance count {current.instances} is out of bounds "
+                            f"[{self.min_scale_limit}, {self.max_scale_limit}]."
+                        ),
+                        started_at=started_at,
+                        completed_at=datetime.now(timezone.utc),
+                    )
+
                 target_instances = action.parameters.get("target_instances")
                 if target_instances is None:
-                    # Fallback / scale_up
-                    current = infra.get_service(action.target_service)
                     target_instances = (current.instances + 1) if current else 2
+
+                try:
+                    target_instances = int(target_instances)
+                except (ValueError, TypeError):
+                    return RecoveryResult(
+                        action_id=action.id,
+                        incident_id=action.incident_id,
+                        action_type=action.action_type,
+                        target_service=action.target_service,
+                        success=False,
+                        message=f"Scaling failed: requested target_instances '{target_instances}' is not a valid integer.",
+                        started_at=started_at,
+                        completed_at=datetime.now(timezone.utc),
+                    )
 
                 if target_instances > self.max_scale_limit:
                     return RecoveryResult(
@@ -68,14 +97,17 @@ class SimulatedRecoveryExecutor:
                         completed_at=datetime.now(timezone.utc),
                     )
 
-                if target_instances < 1:
+                if target_instances < self.min_scale_limit:
                     return RecoveryResult(
                         action_id=action.id,
                         incident_id=action.incident_id,
                         action_type=action.action_type,
                         target_service=action.target_service,
                         success=False,
-                        message=f"Scaling failed: target_instances must be at least 1, got {target_instances}.",
+                        message=(
+                            f"Scaling failed: target_instances {target_instances} must be at least "
+                            f"{self.min_scale_limit}."
+                        ),
                         started_at=started_at,
                         completed_at=datetime.now(timezone.utc),
                     )
