@@ -26,10 +26,33 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from app.models import AuditEvent, AuditEventType, AuditIntegrityReport, AuditRecord, IncidentResponse
 
-_DEFAULT_LOG_DIR = Path(__file__).resolve().parents[2] / "audit_logs"
-_DEFAULT_LOG_FILE = _DEFAULT_LOG_DIR / "audit.jsonl"
+_PROJECT_LOG_DIR = Path(__file__).resolve().parents[2] / "audit_logs"
+_VERCEL_LOG_DIR = Path("/tmp/audit_logs")
+_DEFAULT_LOG_DIR = _PROJECT_LOG_DIR
+_DEFAULT_LOG_FILE = _PROJECT_LOG_DIR / "audit.jsonl"
 _ZERO_HASH = "0" * 64
 _INTEGRITY_FIELD = "_audit_integrity"
+
+
+def get_default_log_dir() -> Path:
+    """Determine the default audit log directory based on environment settings.
+
+    Precedence:
+    1. AUDIT_LOG_DIR environment variable (if set and non-empty)
+    2. /tmp/audit_logs if running on Vercel (VERCEL environment variable set)
+    3. Project-level audit_logs directory for local development
+    """
+    override = os.getenv("AUDIT_LOG_DIR")
+    if override and override.strip():
+        return Path(override.strip())
+    if os.getenv("VERCEL"):
+        return _VERCEL_LOG_DIR
+    return _PROJECT_LOG_DIR
+
+
+def get_default_log_file() -> Path:
+    """Return the default audit.jsonl log file path based on get_default_log_dir()."""
+    return get_default_log_dir() / "audit.jsonl"
 
 
 def _canonical_json(data: Dict[str, Any]) -> str:
@@ -42,8 +65,6 @@ def _record_hash(payload: Dict[str, Any], sequence: int, previous_hash: str) -> 
     return hashlib.sha256(material).hexdigest()
 
 
-class AuditLogger:
-    """Thread-safe append-only audit logger with a verifiable JSONL hash chain."""
 GENESIS_HASH = "0" * 64
 
 _SENSITIVE_KEY_SUBSTRINGS = (
@@ -119,7 +140,7 @@ class AuditLogger:
     """Thread-safe, append-only audit logger recording individual pipeline events with hash chaining."""
 
     def __init__(self, path: Optional[Union[Path, str]] = None) -> None:
-        self._path = Path(path) if path else _DEFAULT_LOG_FILE
+        self._path = Path(path) if path else get_default_log_file()
         self._lock = threading.RLock()
         self._events: List[AuditEvent] = []
         self._pipeline_records: List[Union[AuditRecord, IncidentResponse]] = []
@@ -127,7 +148,10 @@ class AuditLogger:
         self._last_event_hash: Optional[str] = None
         self._integrity_load_error: Optional[str] = None
         if self._path.parent:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                self._path.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                self._integrity_load_error = f"Failed to create audit log directory: {exc}"
         try:
             self._sequence, self._last_hash = self._load_integrity_state()
             self._initialize_last_hash()
@@ -513,6 +537,7 @@ class AuditLogger:
                 os.remove(self._path)
             self._sequence = 0
             self._last_hash = _ZERO_HASH
+            self._integrity_load_error = None
 
 
 # Module-level singleton

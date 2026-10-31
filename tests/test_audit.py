@@ -534,3 +534,133 @@ def test_audit_secret_scrubbing_on_write(tmp_path: Path):
     assert "secret-auth-token-99999" not in content
     assert "[REDACTED]" in content
     assert "safe_value" in content
+
+
+# ==============================================================================
+# Environment Configuration & Path Resolution Tests (Vercel & AUDIT_LOG_DIR)
+# ==============================================================================
+
+import os
+import shutil
+import unittest
+
+
+class TestAuditLoggerEnvironmentConfiguration(unittest.TestCase):
+    """Tests for AuditLogger Vercel environment detection and directory override."""
+
+    def setUp(self):
+        self._orig_vercel = os.environ.get("VERCEL")
+        self._orig_audit_dir = os.environ.get("AUDIT_LOG_DIR")
+        self.tmp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        if self._orig_vercel is not None:
+            os.environ["VERCEL"] = self._orig_vercel
+        else:
+            os.environ.pop("VERCEL", None)
+
+        if self._orig_audit_dir is not None:
+            os.environ["AUDIT_LOG_DIR"] = self._orig_audit_dir
+        else:
+            os.environ.pop("AUDIT_LOG_DIR", None)
+
+        if os.path.exists(self.tmp_dir):
+            shutil.rmtree(self.tmp_dir, ignore_errors=True)
+
+    def test_vercel_environment_selects_tmp_audit_logs(self):
+        """Verify that when VERCEL is set, AuditLogger targets /tmp/audit_logs/audit.jsonl."""
+        os.environ["VERCEL"] = "1"
+        os.environ.pop("AUDIT_LOG_DIR", None)
+        logger = AuditLogger()
+        self.assertEqual(logger.path, Path("/tmp/audit_logs/audit.jsonl"))
+
+    def test_local_environment_preserves_existing_audit_directory(self):
+        """Verify that in local dev without VERCEL or override, project audit_logs is used."""
+        os.environ.pop("VERCEL", None)
+        os.environ.pop("AUDIT_LOG_DIR", None)
+        logger = AuditLogger()
+        expected = Path(__file__).resolve().parents[1] / "audit_logs" / "audit.jsonl"
+        self.assertEqual(logger.path, expected)
+
+    def test_audit_log_dir_overrides_default(self):
+        """Verify that AUDIT_LOG_DIR overrides both local default and Vercel environment."""
+        custom_dir = Path(self.tmp_dir) / "custom_audit"
+        os.environ["AUDIT_LOG_DIR"] = str(custom_dir)
+        os.environ.pop("VERCEL", None)
+        logger = AuditLogger()
+        self.assertEqual(logger.path, custom_dir / "audit.jsonl")
+
+        # Even if VERCEL is set, AUDIT_LOG_DIR takes precedence
+        os.environ["VERCEL"] = "1"
+        logger_vercel = AuditLogger()
+        self.assertEqual(logger_vercel.path, custom_dir / "audit.jsonl")
+
+    def test_hash_chain_integrity_with_custom_directory(self):
+        """Verify that hash-chain integrity remains valid when writing and reading from a custom directory."""
+        custom_dir = Path(self.tmp_dir) / "chain_audit"
+        os.environ["AUDIT_LOG_DIR"] = str(custom_dir)
+        os.environ.pop("VERCEL", None)
+        logger = AuditLogger()
+
+        event1 = logger.record_event(
+            incident_id="inc-chain-1",
+            component_name="Orchestrator",
+            event_type="incident_received",
+            success=True,
+            explanation="First event in custom audit path.",
+            details={"step": 1},
+        )
+        event2 = logger.record_event(
+            incident_id="inc-chain-1",
+            component_name="PolicyGate",
+            event_type="policy_evaluated",
+            success=True,
+            explanation="Second event in custom audit path.",
+            details={"verdict": "approve"},
+        )
+
+        self.assertTrue(logger.path.exists())
+        self.assertEqual(logger.path.parent, custom_dir)
+
+        # Read back events
+        events = logger.read_events()
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0].id, event1.id)
+        self.assertEqual(events[1].id, event2.id)
+
+        # Verify cryptographic hash chain
+        report = logger.verify_integrity()
+        self.assertTrue(report.is_valid)
+        self.assertEqual(report.verified_events, 2)
+        self.assertEqual(len(report.errors), 0)
+
+        # Verify a new logger pointing to the same file verifies integrity
+        reopened = AuditLogger(path=logger.path)
+        reopened_report = reopened.verify_integrity()
+        self.assertTrue(reopened_report.is_valid)
+        self.assertEqual(reopened_report.verified_events, 2)
+
+    def test_audit_events_written_and_read_on_vercel_path(self):
+        """Verify that events can be written, read, and verified with VERCEL environment active."""
+        os.environ["VERCEL"] = "1"
+        os.environ.pop("AUDIT_LOG_DIR", None)
+        logger = AuditLogger()
+        self.assertEqual(logger.path, Path("/tmp/audit_logs/audit.jsonl"))
+
+        try:
+            logger.record_event(
+                incident_id="inc-vercel-test",
+                component_name="Orchestrator",
+                event_type="incident_received",
+                success=True,
+                explanation="Vercel serverless audit write test.",
+            )
+            events = logger.read_events()
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0].explanation, "Vercel serverless audit write test.")
+
+            report = logger.verify_integrity()
+            self.assertTrue(report.is_valid)
+            self.assertEqual(report.verified_events, 1)
+        finally:
+            logger.clear()
